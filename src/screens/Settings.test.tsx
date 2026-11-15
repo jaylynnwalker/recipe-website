@@ -6,7 +6,7 @@ import { Settings } from './Settings'
 
 function SettingsHarness() {
   const [staples, setStaples] = useState(['Olive oil', 'Garlic'])
-  return <Settings staples={staples} onChange={setStaples} onBack={vi.fn()} />
+  return <Settings staples={staples} aiUsage={null} onChange={setStaples} onBack={vi.fn()} />
 }
 
 describe('Settings pantry staples', () => {

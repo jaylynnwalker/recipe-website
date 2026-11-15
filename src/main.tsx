@@ -5,6 +5,8 @@ import './styles.css'
 import './grocery.css'
 import './pantry.css'
 import './inspiration.css'
+import './backend.css'
+import './recipe-form.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

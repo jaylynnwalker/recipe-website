@@ -1,39 +1,137 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Layout, type Page } from './components/Layout'
-import { recipes } from './data'
 import type { Recipe } from './types'
+import { api, type AIUsage, type DeckEntryRecord, type GroceryListRecord, type InboxRecord, type PantryStapleRecord, type RecipeInput } from './api'
 import { Home } from './screens/Home'
 import { Library } from './screens/Library'
 import { RecipeDetail } from './screens/RecipeDetail'
-import { Deck, type DeckEntry } from './screens/Deck'
+import { Deck } from './screens/Deck'
 import { Groceries } from './screens/Groceries'
 import { Inbox } from './screens/Inbox'
 import { Settings } from './screens/Settings'
 import { WhatCanIMake } from './screens/WhatCanIMake'
+import { RecipeForm } from './screens/RecipeForm'
+import { HelpMePick } from './screens/HelpMePick'
 
 export function App() {
   const [page, setPage] = useState<Page>('home')
+  const [loading, setLoading] = useState(true)
+  const [recipes, setRecipes] = useState<Recipe[]>([])
+  const [pantryRecords, setPantryRecords] = useState<PantryStapleRecord[]>([])
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null)
+  const [editingRecipe, setEditingRecipe] = useState<Recipe | null | undefined>(undefined)
   const [search, setSearch] = useState('')
-  const [pantryStaples, setPantryStaples] = useState(['Olive oil', 'Garlic', 'Salt', 'Black pepper', 'Dried oregano', 'Rice', 'Flour'])
-  const [deck, setDeck] = useState<DeckEntry[]>([
-    { recipe: recipes[0], servings: 4, cooked: false },
-    { recipe: recipes[1], servings: 4, cooked: false },
-    { recipe: recipes[2], servings: 2, cooked: false },
-  ])
-  const navigate = (next: Page) => { setPage(next); setSelectedRecipe(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }
-  const openRecipe = (recipe: Recipe) => { setSelectedRecipe(recipe); setPage('recipes'); window.scrollTo(0, 0) }
-  const addToDeck = (recipe: Recipe) => { if (!deck.some((entry) => entry.recipe.id === recipe.id)) setDeck([...deck, { recipe, servings: recipe.baseServings, cooked: false }]) }
+  const [dataError, setDataError] = useState('')
+  const [deck, setDeck] = useState<DeckEntryRecord[]>([])
+  const [groceryList, setGroceryList] = useState<GroceryListRecord>({ id: '', updatedAt: '', items: [], excludedStaples: [] })
+  const [inbox, setInbox] = useState<InboxRecord[]>([])
+  const [reviewingImport, setReviewingImport] = useState<InboxRecord | null>(null)
+  const [reviewingIdea, setReviewingIdea] = useState<RecipeInput | null>(null)
+  const [aiUsage, setAiUsage] = useState<AIUsage | null>(null)
+
+  const loadHouseholdData = async () => {
+    const [storedRecipes, staples, storedDeck, groceries, inboxItems, usage] = await Promise.all([api.recipes(), api.pantry(), api.deck(), api.groceryList(), api.inbox(), api.aiUsage()])
+    setRecipes(storedRecipes); setPantryRecords(staples); setDeck(storedDeck); setGroceryList(groceries); setInbox(inboxItems); setAiUsage(usage); setDataError('')
+  }
+  useEffect(() => { loadHouseholdData().catch((cause) => setDataError(cause instanceof Error ? cause.message : 'Unable to open Our Kitchen')).finally(() => setLoading(false)) }, [])
+
+  const navigate = (next: Page) => { setPage(next); setSelectedRecipe(null); if (next === 'settings') void api.aiUsage().then(setAiUsage).catch(() => undefined); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const openRecipe = async (recipe: Recipe) => {
+    try { setSelectedRecipe(await api.recipe(recipe.id)); setPage('recipes'); window.scrollTo(0, 0) }
+    catch (cause) { setDataError(cause instanceof Error ? cause.message : 'Unable to open recipe') }
+  }
+  const addToDeck = async (recipe: Recipe) => {
+    if (deck.some((entry) => entry.recipe.id === recipe.id)) return
+    try { const entry = await api.addToDeck(recipe.id, recipe.baseServings); setDeck((items) => [...items, entry]); setDataError('') }
+    catch (cause) { setDataError(cause instanceof Error ? cause.message : 'Unable to add meal') }
+  }
+  const updateDeckEntry = async (entry: DeckEntryRecord, patch: { servings?: number; cooked?: boolean }) => {
+    try {
+      const updated = await api.updateDeckEntry(entry.id, patch)
+      setDeck((items) => items.map((item) => item.id === updated.id ? updated : item))
+      setRecipes((items) => items.map((recipe) => recipe.id === updated.recipe.id ? updated.recipe : recipe))
+      setSelectedRecipe((recipe) => recipe?.id === updated.recipe.id ? updated.recipe : recipe)
+      setDataError('')
+    } catch (cause) { setDataError(cause instanceof Error ? cause.message : 'Unable to update meal') }
+  }
+  const removeDeckEntry = async (entry: DeckEntryRecord) => { try { await api.removeDeckEntry(entry.id); setDeck((items) => items.filter((item) => item.id !== entry.id)) } catch (cause) { setDataError(cause instanceof Error ? cause.message : 'Unable to remove meal') } }
+  const clearCompleted = async () => { try { await api.clearCompletedDeck(); setDeck((items) => items.filter((item) => !item.cooked)) } catch (cause) { setDataError(cause instanceof Error ? cause.message : 'Unable to clear completed meals') } }
+  const updateStaples = async (names: string[]) => {
+    const removed = pantryRecords.filter((record) => !names.includes(record.name))
+    const added = names.filter((name) => !pantryRecords.some((record) => record.name === name))
+    setPantryRecords(names.map((name) => pantryRecords.find((record) => record.name === name) ?? { id: `pending-${name}`, name }))
+    try {
+      await Promise.all([...removed.map((record) => api.removeStaple(record.id)), ...added.map((name) => api.addStaple(name))])
+      setPantryRecords(await api.pantry()); setDataError('')
+    } catch (cause) {
+      setDataError(cause instanceof Error ? cause.message : 'Unable to update pantry staples')
+      setPantryRecords(await api.pantry())
+    }
+  }
+
+  const saveRecipe = async (payload: RecipeInput, photo?: File) => {
+    let saved = editingRecipe ? await api.updateRecipe(editingRecipe.id, payload) : await api.createRecipe(payload)
+    if (photo) { await api.uploadPhoto(saved.id, photo, `${saved.title} recipe`); saved = await api.recipe(saved.id) }
+    const storedRecipes = await api.recipes()
+    setRecipes(storedRecipes); setSelectedRecipe(saved); setEditingRecipe(undefined); setPage('recipes'); setDataError('')
+  }
+  const deleteRecipe = async () => {
+    if (!editingRecipe) return
+    await api.deleteRecipe(editingRecipe.id)
+    setRecipes(await api.recipes()); setSelectedRecipe(null); setEditingRecipe(undefined); setPage('recipes'); setDataError('')
+  }
+  const recordMadeThis = async () => {
+    if (!selectedRecipe) return
+    try {
+      const updated = await api.madeThis(selectedRecipe.id)
+      setSelectedRecipe(updated); setRecipes((items) => items.map((item) => item.id === updated.id ? updated : item)); setDataError('')
+    } catch (cause) { setDataError(cause instanceof Error ? cause.message : 'Unable to update cooking history') }
+  }
+  const importedRecipe = reviewingImport ? inboxDraftToRecipe(reviewingImport) : null
+  const saveImportedRecipe = async (payload: RecipeInput, photo?: File) => {
+    if (!reviewingImport) return
+    let saved = await api.saveImport(reviewingImport.id, payload)
+    if (photo) { await api.uploadPhoto(saved.id, photo, `${saved.title} recipe`); saved = await api.recipe(saved.id) }
+    const [storedRecipes, inboxItems] = await Promise.all([api.recipes(), api.inbox()])
+    setRecipes(storedRecipes); setInbox(inboxItems); setReviewingImport(null); setSelectedRecipe(saved); setPage('recipes')
+  }
+  const saveGeneratedRecipe = async (payload: RecipeInput, photo?: File) => {
+    let saved = await api.createRecipe({ ...payload, status: 'Want to Try', source: { ...payload.source, type: 'ai', label: payload.source.label || 'AI-assisted idea' } })
+    if (photo) { await api.uploadPhoto(saved.id, photo, `${saved.title} recipe`); saved = await api.recipe(saved.id) }
+    setRecipes(await api.recipes()); setReviewingIdea(null); setSelectedRecipe(saved); setPage('recipes')
+  }
+
+  if (loading) return <div className="app-loading"><p>Opening Our Kitchen…</p></div>
 
   let content
-  if (selectedRecipe) content = <RecipeDetail recipe={selectedRecipe} onBack={() => setSelectedRecipe(null)} onAddToDeck={addToDeck} />
-  else if (page === 'home') content = <Home recipes={recipes} search={search} onSearch={setSearch} onOpenRecipe={openRecipe} onOpenDeck={() => navigate('deck')} onBrowse={() => navigate('recipes')} onWhatCanIMake={() => navigate('make')} onSettings={() => navigate('settings')} onAddToDeck={addToDeck} deckRecipeIds={deck.map((entry) => entry.recipe.id)} deckCount={deck.length} />
-  else if (page === 'recipes') content = <Library recipes={recipes} initialSearch={search} onOpenRecipe={openRecipe} />
-  else if (page === 'deck') content = <Deck entries={deck} onUpdate={setDeck} onBrowse={() => navigate('recipes')} />
-  else if (page === 'groceries') content = <Groceries staples={pantryStaples} />
-  else if (page === 'settings') content = <Settings staples={pantryStaples} onChange={setPantryStaples} onBack={() => navigate('home')} />
-  else if (page === 'make') content = <WhatCanIMake staples={pantryStaples} recipes={recipes} onOpenRecipe={openRecipe} onBack={() => navigate('home')} />
-  else content = <Inbox />
+  if (reviewingImport && importedRecipe) content = <RecipeForm key={reviewingImport.id} recipe={importedRecipe} mode="review" sourceType={reviewingImport.sourceType} onSave={saveImportedRecipe} onCancel={() => setReviewingImport(null)} />
+  else if (reviewingIdea) content = <RecipeForm recipe={draftToRecipe(reviewingIdea, 'generated-idea')} mode="review" sourceType="ai" onSave={saveGeneratedRecipe} onCancel={() => setReviewingIdea(null)} />
+  else if (editingRecipe !== undefined) content = <RecipeForm recipe={editingRecipe} onSave={saveRecipe} onDelete={editingRecipe ? deleteRecipe : undefined} onCancel={() => setEditingRecipe(undefined)} />
+  else if (selectedRecipe) content = <RecipeDetail recipe={selectedRecipe} onBack={() => setSelectedRecipe(null)} onAddToDeck={addToDeck} onEdit={() => setEditingRecipe(selectedRecipe)} onMadeThis={recordMadeThis} />
+  else if (page === 'home') content = <Home recipes={recipes} deckRecipes={deck.map((entry) => entry.recipe)} search={search} onSearch={setSearch} onOpenRecipe={(recipe) => void openRecipe(recipe)} onOpenDeck={() => navigate('deck')} onBrowse={() => navigate('recipes')} onHelpPick={() => navigate('pick')} onWhatCanIMake={() => navigate('make')} onSettings={() => navigate('settings')} onAddToDeck={(recipe) => void addToDeck(recipe)} deckRecipeIds={deck.map((entry) => entry.recipe.id)} deckCount={deck.length} />
+  else if (page === 'recipes') content = <Library recipes={recipes} initialSearch={search} onOpenRecipe={(recipe) => void openRecipe(recipe)} onAddRecipe={() => setEditingRecipe(null)} onAddToDeck={(recipe) => void addToDeck(recipe)} deckRecipeIds={deck.map((entry) => entry.recipe.id)} />
+  else if (page === 'deck') content = <Deck entries={deck} onChange={updateDeckEntry} onRemove={removeDeckEntry} onClearCompleted={clearCompleted} onBrowse={() => navigate('recipes')} onGroceries={() => navigate('groceries')} />
+  else if (page === 'groceries') content = <Groceries list={groceryList} onPreview={api.previewGroceryUpdate} onApply={async () => setGroceryList(await api.applyGroceryUpdate())} onToggle={async (item) => { const updated = await api.updateGroceryItem(item.id, { checked: !item.checked }); setGroceryList((list) => ({ ...list, items: list.items.map((current) => current.id === updated.id ? updated : current) })) }} onAdd={async (label, category, quantity, unit) => { const item = await api.addGroceryItem({ label, category, quantity, unit }); setGroceryList((list) => ({ ...list, items: [...list.items, item] })) }} onEdit={async (item, patch) => { const updated = await api.updateGroceryItem(item.id, patch); setGroceryList((list) => ({ ...list, items: list.items.map((current) => current.id === updated.id ? updated : current) })) }} onDelete={async (item) => { await api.removeGroceryItem(item.id); setGroceryList((list) => ({ ...list, items: list.items.filter((current) => current.id !== item.id) })) }} onAddBack={async (staple) => { const item = await api.addBackStaple(staple.id); setGroceryList((list) => ({ ...list, items: [...list.items, item], excludedStaples: list.excludedStaples.filter((current) => current.id !== staple.id) })) }} />
+  else if (page === 'settings') content = <Settings staples={pantryRecords.map((record) => record.name)} aiUsage={aiUsage} onChange={(names) => void updateStaples(names)} onBack={() => navigate('home')} />
+  else if (page === 'make') content = <WhatCanIMake staples={pantryRecords.map((record) => record.name)} onOpenRecipe={(recipe) => void openRecipe(recipe)} onReviewIdea={setReviewingIdea} onBack={() => navigate('home')} />
+  else if (page === 'pick') content = <HelpMePick onBack={() => navigate('home')} onOpenRecipe={(recipe) => void openRecipe(recipe)} onAddToDeck={(recipe) => void addToDeck(recipe)} onReviewIdea={setReviewingIdea} deckRecipeIds={deck.map((entry) => entry.recipe.id)} />
+  else content = <Inbox items={inbox} onImportUrl={async (url) => { const item = await api.importUrl(url); setInbox((items) => [item, ...items]) }} onImportPhotos={async (files) => { const item = await api.importPhotos(files); setInbox((items) => [item, ...items]) }} onReview={setReviewingImport} onAiExtract={async (item) => { const updated = await api.aiExtractImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)); setAiUsage(await api.aiUsage()) }} onRetry={async (item) => { const updated = await api.retryImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)) }} onDelete={async (item) => { if (!window.confirm(`Delete “${item.title}” from the Inbox?`)) return; await api.deleteImport(item.id); setInbox((items) => items.filter((current) => current.id !== item.id)) }} />
 
-  return <Layout page={page} onNavigate={navigate}>{content}</Layout>
+  return <Layout page={page} onNavigate={navigate}>{dataError && <p className="data-error" role="alert">{dataError}</p>}{content}</Layout>
+}
+
+function draftToRecipe(draft: RecipeInput, id: string): Recipe {
+  return { id, title: draft.title, description: draft.description, status: draft.status, cuisine: draft.cuisine, protein: draft.protein, tags: draft.tags, categories: draft.categories, prepMinutes: draft.prep_minutes, cookMinutes: draft.cook_minutes, baseServings: draft.base_servings, image: null, imageAlt: 'Generated recipe placeholder', ingredients: draft.ingredients.map(({ name, quantity, unit, note }) => ({ name, quantity, unit: unit ?? undefined, note: note ?? undefined })), steps: draft.steps.map(({ instruction, tip }) => ({ instruction, tip: tip ?? undefined })), notes: draft.notes, source: { label: draft.source.label, url: draft.source.url ?? undefined }, cookingHistory: [] }
+}
+
+function inboxDraftToRecipe(item: InboxRecord): Recipe {
+  const draft = item.draft
+  return {
+    id: item.id, title: draft.title, description: draft.description, status: draft.status, cuisine: draft.cuisine, protein: draft.protein,
+    tags: draft.tags, categories: draft.categories, prepMinutes: draft.prep_minutes, cookMinutes: draft.cook_minutes, baseServings: draft.base_servings,
+    image: item.assets[0]?.url ?? null, imageAlt: item.assets.length ? 'Original uploaded recipe page' : 'Imported recipe placeholder',
+    ingredients: draft.ingredients.map((ingredient) => ({ name: ingredient.name, quantity: ingredient.quantity, unit: ingredient.unit ?? undefined, note: ingredient.note ?? undefined })),
+    steps: draft.steps.map((step) => ({ instruction: step.instruction, tip: step.tip ?? undefined })), notes: draft.notes,
+    source: { label: draft.source.label, url: draft.source.url ?? undefined }, cookingHistory: [],
+  }
 }

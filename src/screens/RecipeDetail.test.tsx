@@ -7,7 +7,7 @@ import { RecipeDetail } from './RecipeDetail'
 describe('RecipeDetail', () => {
   it('switches tabs and scales quantities', async () => {
     const user = userEvent.setup()
-    render(<RecipeDetail recipe={recipes[0]} onBack={vi.fn()} onAddToDeck={vi.fn()} />)
+    render(<RecipeDetail recipe={recipes[0]} onBack={vi.fn()} onAddToDeck={vi.fn()} onEdit={vi.fn()} onMadeThis={vi.fn()} />)
     expect(screen.getByText(/1½/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Increase servings' }))
     expect(screen.getByText(/1.88/)).toBeInTheDocument()

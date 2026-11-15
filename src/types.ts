@@ -18,7 +18,9 @@ export interface Recipe {
   description: string
   status: RecipeStatus
   cuisine: string
+  protein?: string
   tags: string[]
+  categories?: string[]
   prepMinutes: number
   cookMinutes: number
   baseServings: number
@@ -28,6 +30,7 @@ export interface Recipe {
   steps: RecipeStep[]
   notes: string
   source: { label: string; url?: string }
+  cookingHistory?: string[]
 }
 
 export type Page = 'home' | 'recipes' | 'deck' | 'groceries' | 'inbox' | 'recipe'

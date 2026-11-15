@@ -22,3 +22,14 @@
 .grocery-section-toggle small { margin-left: 8px; color: var(--muted); font: normal .8rem Arial, sans-serif; }
 .collapse-icon { color: var(--olive); font: 1.5rem Arial, sans-serif; transition: transform .18s ease; }
 .grocery-section-toggle[aria-expanded="false"] .collapse-icon { transform: rotate(-90deg); }
+.grocery-review { background: #fff; border: 1px solid var(--line); border-radius: 14px; margin-bottom: 22px; padding: 18px; }
+.grocery-review h2 { margin: 0; }
+.review-columns { display: grid; gap: 12px; margin: 15px 0; }
+.review-columns > div { background: #f9f6ee; border-radius: 10px; padding: 12px; }
+.review-columns strong span { color: var(--olive); }
+.review-columns ul { margin: 8px 0 0; padding-left: 20px; }
+.review-columns p { margin: 8px 0 0; }
+.grocery-groups label small { color: var(--muted); display: block; font-size: .72rem; }
+.add-grocery-form { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 18px; }
+.add-grocery-form input, .add-grocery-form select { background: white; border: 1px solid var(--line); border-radius: 10px; min-height: 46px; padding: 10px 12px; }
+@media (min-width: 760px) { .review-columns { grid-template-columns: repeat(3, 1fr); } .add-grocery-form { grid-template-columns: minmax(180px, 1fr) 90px 110px 160px auto; } }

@@ -114,6 +114,7 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - Notes tab: optional personal notes and source attribution; does not replace inline cooking tips.
 - Persistent or easy-to-reach **Cook Mode** action.
 - Recipe can be edited directly; no separate version-history UI required.
+- A compact **Made this** action records a cooking-history event and updates the displayed count without leaving the detail screen.
 - Source link and video embed where available/appropriate.
 
 ### 4.5 Cook Mode
@@ -132,6 +133,7 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - **No weekdays, calendar dates, or mandatory weekly boundary.**
 - Add/remove meals; adjust servings; reorder if useful.
 - Mark a meal **Cooked**; record it in cooking history.
+- Completed meals remain visible until removed or cleared with **Clear completed**; unfinished meals are retained.
 - Uncooked meals remain until manually removed, completed, or carried over during a manual reset.
 - Help Me Pick can add meals directly to the deck.
 - Grocery list is generated from the deck, but **not automatically regenerated** on every change.
@@ -143,17 +145,23 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - Editable quantities, additions, and removals.
 - Shared state visible to both logged-in household members.
 - **Update Grocery List** action explicitly reviews and applies changes from Meals on Deck.
+- The review identifies generated additions, quantity updates, and removals before the user applies the new snapshot.
 - Preserve manual additions, checked items, and exclusions when reconciling changes.
 - Exclude the editable shared pantry-staples list by default, with ability to add individual staples back.
 - Do not use a date-specific “This Week” framing; use **Current List** or similar neutral label.
 
 ### 4.8 Recipe Inbox / Add Recipe
 
+- The Recipe Library **Add recipe** action opens a manual editor for title/description, ingredients with quantities and units, ordered instructions with inline tips, times, servings, cuisine/protein/categories/tags, status, source, notes, and an optional photo.
+- Recipe Detail reuses the same editor with existing values prefilled. Deletion requires explicit confirmation and returns to the refreshed library.
+
 - Two primary actions: **From a Link** and **From a Photo**.
 - Link import supports recipe pages and attempts YouTube description/transcript extraction when available.
 - Photo import supports one or multiple cookbook pages, handwritten cards, and phone photos.
 - New submissions are saved immediately to a review queue even if extraction fails.
-- Show queue items with thumbnail/source and status: Pending, Processing, Needs Review, Failed, Saved.
+- Show queue items with thumbnail/source and status: Pending, Processing, Ready for Review, Failed, Saved.
+- Failed URL imports offer both **Retry** and manual entry. Potential matches in the saved library display a duplicate warning before review.
+- Photo imports clearly state that originals are preserved. **Extract with AI** processes ordered multi-page images only on request; failures retain the originals and allow retry or manual transcription.
 - Review screen shows extracted title, ingredients, instructions, tags, and source details for correction before saving.
 - Preserve original uploaded photos and optional cookbook title/page number.
 - Check for likely duplicates before final save.
@@ -172,7 +180,7 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - Let users add and individually remove ingredients they have available.
 - Show a compact summary of the household's Pantry Staples and include them by default through an explicit checkbox.
 - **Find Recipes** shows saved-library matches first, using normal compact recipe cards.
-- Potential generated ideas appear in a separate, clearly labeled section and must state when they are only sample/prototype results and no AI request occurred.
+- Generated ideas appear in a separate, clearly labeled **Not saved** section. Each must be reviewed and corrected in the recipe editor before it can be saved to Want to Try.
 - Never imply that a generated idea is a tested or saved household recipe.
 
 ### 4.10 Household Settings — Pantry Staples
@@ -183,6 +191,12 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - On mobile, keep management in a single calm card with touch-friendly add/remove controls.
 - In the Grocery List, show a subtle excluded-staples summary. Users can review excluded staples and explicitly add individual items back to the current grocery snapshot.
 - Adding a staple back does not alter the Pantry Staples setting or automatically regenerate the grocery list.
+
+### 4.11 AI usage and cooking assistance
+
+- Household Settings shows the current calendar month, estimated AI spend, active reservations, configured model, $8 warning, and $10 application budget.
+- Recipe Detail and Cook Mode include a compact optional question field for substitutions, techniques, adaptations, and current-recipe questions. Responses never edit the saved recipe.
+- AI-unavailable, invalid-response, and budget-exhausted states use ordinary inline error feedback and leave the rest of the application usable.
 
 ## 5. Photography and image handling
 

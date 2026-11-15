@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Icon } from './Icons'
 
-export type Page = 'home' | 'recipes' | 'deck' | 'groceries' | 'inbox' | 'settings' | 'make'
+export type Page = 'home' | 'recipes' | 'deck' | 'groceries' | 'inbox' | 'settings' | 'make' | 'pick'
 
 const items = [
   { id: 'home', label: 'Home', desktopLabel: 'Home' },

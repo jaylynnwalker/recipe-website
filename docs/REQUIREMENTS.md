@@ -16,13 +16,13 @@ Build a private, mobile-first household recipe website that becomes the single p
 - **Mobile first:** Primarily used on phones; responsive on computers.
 - **Shared household:** Two household members can contribute to one library, dinner lineup, and grocery list.
 - **Simple and inexpensive:** Prefer deterministic features over AI where possible; avoid unnecessary integrations and recurring fees.
-- **Private by default:** Require authenticated access, including when accessed remotely.
+- **Private by default:** Local development may use an explicit bypass; remote production access requires verified Cloudflare Access identity at the API boundary.
 - **No rigid scheduling:** Dinner lineup is not assigned to calendar days.
 
 ## 3. Users and access
 
-- Two individual household accounts with access to the same content.
-- Both users may add, edit, archive, and browse recipes; edit the dinner lineup, pantry staples, and grocery list.
+- One shared household workspace; the application does not maintain separate email/password accounts.
+- Household members may add, edit, archive, and browse recipes; edit Meals on Deck, pantry staples, and the grocery list.
 - Access from home and remotely via secure HTTPS is desired.
 - Offline functionality is **not required**.
 - No public recipe publishing or social features in the initial scope.
@@ -130,7 +130,7 @@ WhatsApp sharing is **not in initial scope** because the grocery list will be av
 
 ## 6. Nonfunctional requirements
 
-- **Privacy/security:** authenticated household access; encrypted remote connections; no public database exposure; protected AI credentials.
+- **Privacy/security:** verified Cloudflare Access identity for production API access; encrypted remote connections; no public database exposure; protected AI credentials.
 - **Scale:** target hundreds of recipes initially, with room for 1,000+.
 - **Reliability:** preserve drafts and failed imports; safe recovery after server restarts.
 - **Data portability:** export recipe records and retain access to uploaded photos.
@@ -155,12 +155,12 @@ WhatsApp sharing is **not in initial scope** because the grocery list will be av
 
 ## 9. Open decisions
 
-- Exact account onboarding and password recovery approach.
-- Whether cookbook-image extraction and YouTube import ship in the first usable release or the next iteration.
+- Cloudflare Access email allow-list and session policy for production deployment.
+- Which provider-side spend limits and alerts should accompany the application-level AI budget before production deployment.
 - Specific remote-access hostname/domain and access policy.
 - Exact ingredient normalization rules for mixed units, package sizes, and optional ingredients.
-- Whether source photos are retained indefinitely and whether imported external images may be stored.
+- Define a future retention/backup policy for original source photos; currently they remain until their Inbox item is deleted.
 
 ## 10. Definition of initial success
 
-Both household members can sign in from phones, save and edit recipes, search by cuisine/ingredients, select 2–3 dinners without dates, generate and edit a shared grocery list excluding fixed staples, and access the website securely outside the home. Advanced AI and import channels can be added incrementally without changing this core workflow.
+Both household members can enter the shared workspace through verified Cloudflare Access in production, save and edit recipes, search by cuisine/ingredients, select 2–3 dinners without dates, generate and edit a shared grocery list excluding fixed staples, and access the website securely outside the home. Advanced AI and import channels can be added incrementally without changing this core workflow.

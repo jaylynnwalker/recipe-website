@@ -4,7 +4,7 @@
 
 - Self-host on existing Ubuntu Server 24.04 using Docker Compose.
 - Keep infrastructure small, maintainable, and inexpensive.
-- Support two authenticated users and 1,000+ recipes.
+- Support one shared household workspace, access by two household members, and 1,000+ recipes.
 - Provide secure remote HTTPS access without exposing the database or opening router ports.
 - Use paid AI only for explicit requests and difficult imports.
 - Preserve data portability and recoverability.
@@ -39,18 +39,18 @@ flowchart TD
 | Database | SQLite | Selected provisionally; sufficient for household scale. Enable WAL and busy timeout. |
 | ORM/migrations | SQLAlchemy + Alembic | Proposed if using FastAPI. |
 | Images | Filesystem with database references | Selected; avoids binary storage in SQLite. |
-| Website extraction | `recipe-scrapers` + schema.org/JSON-LD parsing | Proposed; handle unsupported sites gracefully. |
-| AI | External model API | Provider/model not selected; keys kept server-side. |
+| Website extraction | schema.org/JSON-LD parsing with guarded HTTP fetching | Implemented for the initial importer without another scraping dependency; unsupported sites remain manual drafts. |
+| AI | OpenAI Responses API | Server-only key; configurable `gpt-6-luna` default with centralized pricing and structured text/image outputs. |
 | Remote access | Cloudflare Tunnel | Proposed; validate domain, account, and access requirements. |
 | Source control | GitHub | Selected for code and documentation; not production database storage. |
 
 ## 4. Application modules
 
-1. **Authentication:** login/logout, password hashing, session management, access control.
+1. **Access boundary:** explicit local-development bypass; production Cloudflare Access JWT verification and household scoping.
 2. **Recipes:** CRUD, categories, structured ingredients, ordered steps/tips, photos, cooking history.
 3. **Search:** SQLite indexed queries and optional FTS5 for title, ingredient, and tag text.
 4. **Imports:** inbox, source URL/photo storage, deterministic extraction, AI fallback, validation and review.
-5. **Dinner lineup:** shared unordered meal selection, per-entry servings, cooked status, explicit reset/carryover.
+5. **Meals on Deck:** shared unordered meal selection, per-entry servings, cooked status, and explicit completed-item clearing.
 6. **Groceries:** deterministic ingredient scaling/aggregation, staple exclusions, manual overrides, purchase states, preview-and-apply updates.
 7. **AI assistant:** narrowly scoped actions for photo extraction, substitutions, recipe ideas, and contextual cooking help.
 8. **Settings/export:** household staples, backup/export access, account settings.
@@ -61,7 +61,7 @@ Identifiers should be stable UUIDs or database-generated IDs; timestamps should 
 
 | Table | Key fields / relationships |
 |---|---|
-| `users` | `id`, `email`, `password_hash`, `created_at`, `is_active` |
+| `users` | Legacy compatibility only; application email/password accounts are no longer required. |
 | `households` | `id`, `name` (optional abstraction for shared data) |
 | `household_members` | `household_id`, `user_id`, `role` |
 | `recipes` | `id`, `household_id`, `title`, `description`, `status`, `base_servings`, `prep_minutes`, `cook_minutes`, `source_type`, `source_url`, `source_title`, `source_page`, `image_path`, timestamps |
@@ -70,14 +70,14 @@ Identifiers should be stable UUIDs or database-generated IDs; timestamps should 
 | `recipe_steps` | `id`, `recipe_id`, `position`, `instruction_text`, `tip_text` nullable |
 | `recipe_tags` | `recipe_id`, `tag_id` (cuisine, protein, meal type, custom tags) |
 | `tags` | `id`, `name`, `type` |
-| `import_jobs` | `id`, `household_id`, `created_by`, `source_type`, `source_url`, `status`, `draft_payload`, `error_message`, timestamps |
-| `import_assets` | `id`, `import_job_id`, `file_path`, `page_order`, `media_type` |
-| `lineups` | `id`, `household_id`, `status`, timestamps |
-| `lineup_entries` | `id`, `lineup_id`, `recipe_id`, `servings`, `is_cooked`, `cooked_at`, `position` |
+| `import_jobs` | `id`, `household_id`, `source_type`, `source_url`, status, title, draft payload, error, duplicate/saved recipe references, timestamps |
+| `import_assets` | `id`, `import_job_id`, persistent storage name, original name, page order, media type, timestamp |
+| `deck_entries` | `id`, `household_id`, `recipe_id`, `servings`, `cooked_at`, `position`, timestamps |
 | `cooking_events` | `id`, `recipe_id`, `user_id`, `cooked_at` |
 | `pantry_staples` | `id`, `household_id`, `ingredient_id` or normalized name |
-| `grocery_lists` | `id`, `household_id`, `lineup_id`, `last_generated_at`, `revision` |
-| `grocery_items` | `id`, `list_id`, `ingredient_id` nullable, `label`, `quantity`, `unit`, `category`, `origin`, `state`, `user_modified`, `source_fingerprint` |
+| `grocery_lists` | `id`, `household_id`, `updated_at` (one current snapshot per household) |
+| `grocery_items` | `id`, `grocery_list_id`, `label`, normalized name, quantity, unit, category, checked/manual flags, generated source key, position |
+| `grocery_excluded_staples` | `id`, `grocery_list_id`, staple name and normalized name for the current snapshot |
 
 **Important modeling choices:**
 
@@ -93,14 +93,14 @@ Identifiers should be stable UUIDs or database-generated IDs; timestamps should 
 ### Scaling
 
 - Each recipe has `base_servings`.
-- Each lineup entry stores its own `servings`.
-- `scaled_quantity = base_quantity * (lineup_servings / base_servings)` for numeric quantities.
+- Each deck entry stores its own `servings`.
+- `scaled_quantity = base_quantity * (deck_servings / base_servings)` for numeric quantities.
 - Do not automatically scale temperatures, cooking durations, or nonnumeric phrases such as “to taste.”
 - Preserve fractions/decimal precision in calculations; format quantities for display.
 
 ### Aggregation
 
-1. Collect ingredients for all active lineup entries.
+1. Collect ingredients for all unfinished deck entries.
 2. Scale quantities for each entry.
 3. Normalize ingredient names and compatible units (e.g., oz/lb where appropriate).
 4. Group only when ingredient identity and unit semantics are compatible.
@@ -110,7 +110,7 @@ Identifiers should be stable UUIDs or database-generated IDs; timestamps should 
 
 ### Manual refresh semantics
 
-- Changing a lineup never automatically mutates the existing grocery list.
+- Changing Meals on Deck never automatically mutates the existing grocery list.
 - “Update Grocery List” computes a **proposed diff** (additions, quantity changes, removals).
 - Preserve manual items, already-have decisions, purchased states, and user-edited quantities unless the user explicitly accepts changes.
 - Use a revision number/optimistic concurrency check to avoid one household member silently overwriting another's edits.
@@ -143,7 +143,9 @@ flowchart TD
 - Avoid fetching arbitrary internal/private URLs supplied as recipe links: enforce SSRF protections (block loopback, private IP ranges, redirects into internal networks, etc.).
 - Respect source licensing and access controls; retain attribution and do not bypass paywalls or platform restrictions.
 - Validate model output against a strict schema; flag uncertainty instead of fabricating missing details.
-- For initial implementation, short-lived in-process tasks may suffice; durable import status/retry handling is needed before relying on asynchronous imports.
+- The initial implementation persists the job before running bounded extraction in the request process. Status and retry data are durable; a separate task queue is unnecessary at household scale and can be introduced later if import latency requires it.
+- YouTube importing reads only publicly returned page metadata/descriptions. It does not download video content or bypass transcript/access restrictions.
+- Original cookbook/handwritten images are retained with the Inbox item for manual transcription until that item is explicitly deleted. No vision extraction is implied without a configured AI provider.
 
 ## 8. AI integration and cost controls
 
@@ -155,7 +157,9 @@ AI should be invoked only for explicit user actions:
 - Generate new dishes using ingredients on hand.
 - Answer questions about the currently opened recipe.
 
-**Controls:** server-side API keys; per-request input limits; request logging without unnecessary personal data; model output validation; confirmation before saving AI edits; configurable spending/usage caps and clear error messages if the AI service is unavailable. Never use AI for normal search, recipe scaling, pantry exclusions, or grocery calculations.
+**Controls:** server-side API keys; per-request input limits; no key or prompt logging; strict JSON-schema output validation; confirmation before saving generated or extracted recipes; and clear errors if the service is unavailable. Never use AI for normal search, recipe scaling, pantry exclusions, or grocery calculations.
+
+The application records monthly estimated cost in integer microdollars. Each request atomically reserves a conservative feature-specific amount before calling the provider, then replaces the reservation with token-based cost when usage is reported. Missing usage and provider failures are charged at the reservation amount. New reservations are refused when spend plus reservations would exceed $10; the UI warns at $8. Calendar-month keys provide automatic monthly rollover. This reduces concurrency overspend but cannot guarantee an exact provider-billing hard cap, so provider-side limits remain recommended.
 
 ## 9. UI architecture
 
@@ -167,7 +171,7 @@ AI should be invoked only for explicit user actions:
 - Library: search, filters, cuisine browsing, compact recipe cards.
 - Recipe: small image, metadata, serving selector, ingredients, steps with tips, optional cooking mode, edit action.
 - Add/Inbox: quick URL/photo entry, pending/failed imports, review editor.
-- Dinner Lineup: unordered 2–3 dinner cards, servings, cooked status, start new lineup, Help Me Pick.
+- Meals on Deck: unordered dinner cards, servings, cooked status, completed-item clearing, and Help Me Pick.
 - Grocery List: categorized editable items, `already_have` vs `purchased`, explicit update preview.
 - Help Me Pick: rotation/forgotten/new/mix selection and ingredient/time filters.
 
@@ -175,11 +179,11 @@ AI should be invoked only for explicit user actions:
 
 ## 10. Security and remote access
 
-- Use a private app with individual user accounts and securely hashed passwords (Argon2id or equivalent).
-- Prefer secure, HTTP-only session cookies with CSRF protection as appropriate; enforce session expiration and login rate limits.
-- Verify authorization for every API operation; never rely only on frontend visibility.
+- Local development may bypass identity only when `auth_mode=local` is explicitly configured.
+- Production validates Cloudflare Access signed JWT assertions using the configured issuer keys and application audience. Missing or invalid assertions fail closed.
+- Enforce verification and household scope for every API operation; never rely only on frontend visibility or an unverified email header.
 - Put the application behind HTTPS. Cloudflare Tunnel is a candidate for remote access without router port forwarding; a domain under Cloudflare management is generally required for a stable named hostname.
-- Cloudflare Tunnel alone does **not** authenticate users. Decide whether to add Cloudflare Access as an extra gate; retain application-level authentication.
+- Cloudflare Tunnel alone does **not** authenticate users. Cloudflare Access provides the production identity gate, and the backend independently verifies its signed assertion.
 - Bind the app to internal Docker networking or localhost as appropriate; do not expose SQLite or AI keys publicly.
 - Use least-privilege container permissions, pinned image versions, input validation, and routine dependency updates.
 - Restrict uploads and URL fetching to avoid malicious files and SSRF.
@@ -219,7 +223,7 @@ Docker volumes/bind mounts must persist the SQLite database and media across dep
 | Phase | Deliverables |
 |---|---|
 | 0. Validate stack | Choose React/FastAPI vs simpler server-rendered approach; confirm storage and hostname/security. |
-| 1. Foundation | Docker app, authentication, database schema/migrations, mobile design system. |
+| 1. Foundation | App foundation, access boundary, database schema/migrations, mobile design system. |
 | 2. Recipe core | CRUD, photo upload, tags, search, cooking views, direct edits. |
 | 3. Inbox/import | URL capture, structured extraction, review flow, manual fallback. |
 | 4. Planning/groceries | Shared lineup, serving scaling, fixed staples, grocery snapshot, safe manual refresh. |
@@ -241,8 +245,8 @@ Remote access may be enabled earlier for household testing once authentication a
 ## 15. Open architecture decisions
 
 1. Select final web stack after a small UI prototype: React/FastAPI or server-rendered FastAPI + HTMX.
-2. Choose AI provider/model and establish cost controls.
-3. Decide login onboarding, recovery, and optional Cloudflare Access.
+2. Revalidate the selected OpenAI model and pricing table before changing models.
+3. Define the Cloudflare Access email allow-list and session policy before deployment.
 4. Choose the remote hostname/domain and validate tunnel configuration.
 5. Finalize ingredient canonicalization, unit handling, and grocery conflict UI.
 6. Verify SSD/HDD free space, permissions, and off-server backup target.

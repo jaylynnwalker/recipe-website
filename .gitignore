@@ -1,4 +1,14 @@
 node_modules/
+.venv/
+.venv-repaired/
+backend/.deps/
+backend/data/
+data/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+__pycache__/
+.pytest_cache/
 dist/
 .vite/
 coverage/

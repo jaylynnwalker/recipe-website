@@ -16,7 +16,7 @@ If documents conflict, identify the conflict and ask before making a product dec
 - Use **Meals on Deck**, not Dinner Lineup; meals have **no weekday/date assignments** or mandatory weekly reset.
 - Recipe detail has separate **Ingredients**, **Instructions**, and **Notes** tabs, plus optional Cook Mode.
 - The desktop homepage's recipe suggestions use **compact food-photo cards**, not category icon tiles.
-- Support two authenticated users sharing the same household data.
+- Use one shared household workspace. Local bypass must be explicit; production API access must verify Cloudflare Access signed identity tokens and fail closed.
 - Recipe Inbox must accommodate links and uploaded photos, including multiple cookbook pages; imported recipes require review before saving.
 - Grocery lists update on explicit user action with a preview; preserve manual additions and user checkoffs.
 - AI is optional/on-demand; ordinary browsing and grocery calculations must not depend on it.
@@ -25,7 +25,7 @@ If documents conflict, identify the conflict and ask before making a product dec
 - Favor the simplest maintainable solution. Avoid extra infrastructure without a demonstrated need.
 - Keep secrets out of source control; provide `.env.example` rather than committing credentials.
 - Keep persistent user data outside ephemeral containers. Plan for backups of both database and uploaded images.
-- Keep application authentication and authorization independent of network/tunnel security.
+- Enforce production Cloudflare Access token verification and household scoping at the backend/API boundary, independently of frontend visibility.
 - Build responsive, accessible interfaces with readable typography and touch-friendly controls.
 - Add or update tests for substantive behavior changes, and run applicable checks before reporting completion.
 - Document important architecture decisions and any deliberate deviations from the technical design.

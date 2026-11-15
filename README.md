@@ -109,8 +109,47 @@ AI cost figures are estimates derived from reported token usage and the configur
 - An email header by itself is never trusted. Cloudflare Tunnel and Access are not configured or deployed in this phase.
 - Uploaded files are renamed, type/size checked, decoded as images, and stored outside the frontend bundle.
 
+## Docker deployment preparation
+
+The production Compose stack builds two targets from the root `Dockerfile`: Nginx serves the compiled React application and proxies application traffic to a private FastAPI container. Only `127.0.0.1:8080` is published; the API and SQLite are not exposed on the host network. Cloudflare Tunnel and Access are intentionally not configured here.
+
+On Ubuntu Server 24.04 with Docker Engine and the Compose plugin installed, prepare the persistent directories for the non-root backend user:
+
+```bash
+sudo install -d -o 10001 -g 10001 -m 0750 /var/lib/recipe-website
+sudo install -d -o 10001 -g 10001 -m 0750 /paulwall/discoball/media/recipe-website
+cp deploy/server.env.example deploy/server.env
+chmod 600 deploy/server.env
+```
+
+Edit `deploy/server.env` on the server. Keep `OPENAI_API_KEY` there only; it is ignored by Git, excluded from Docker build contexts, and loaded only by the backend container. Production should keep `OUR_KITCHEN_AUTH_MODE=cloudflare` and provide the Access team domain and audience. For a temporary loopback-only smoke test before Access exists, `local` may be set explicitly, but must not be used after the port becomes remotely reachable.
+
+Before the first deployment, copy an existing SQLite database to `/var/lib/recipe-website/our-kitchen.sqlite3` and existing uploaded media to the media mount only while the current application is stopped. Preserve ownership as UID/GID `10001`. Back up both locations before every upgrade.
+
+Build and start the stack from the repository root:
+
+```bash
+docker compose build
+docker compose up -d
+docker compose ps
+curl --fail http://127.0.0.1:8080/healthz
+```
+
+The backend entrypoint runs `alembic upgrade head` and initializes the shared household before starting Uvicorn. Migration failure stops the backend rather than starting against a partial schema. Inspect status without exposing secrets:
+
+```bash
+docker compose logs --tail=100 backend
+docker compose logs --tail=100 frontend
+```
+
+Stop containers without removing persistent data:
+
+```bash
+docker compose down
+```
+
 ## Next backend sequence
 
 1. Add optional persistence for recent discovery prompts if the household finds it useful.
 2. Validate model pricing before each model change and add provider-side project limits.
-3. Add rate limiting, Docker, backups, and secure remote access before deployment.
+3. Add rate limiting, automated backups, and secure Cloudflare remote access before deployment.

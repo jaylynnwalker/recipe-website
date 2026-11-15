@@ -16,6 +16,7 @@ from ..database import get_db
 from ..dependencies import Workspace, current_workspace
 from ..ai import AIUnavailable, BudgetExceeded, RECIPE_SCHEMA, recipe_draft, run_structured
 from ..importer import ImportFailure, empty_draft, extract_url, fetch_public_html, validate_external_url
+from ..ingredient_parser import normalize_imported_draft
 from ..models import ImportAsset, ImportJob, Recipe
 from ..schemas import InboxUrlCreate, RecipeRead, RecipeWrite
 from ..serializers import recipe_to_dict
@@ -58,6 +59,7 @@ async def process_job(job: ImportJob, db: Session):
     job.status = 'Processing'; job.error_message = None; db.commit()
     try:
         draft, complete, _final_url = await extract_url(job.source_url)
+        draft = normalize_imported_draft(draft)
         job.source_type = draft.get('source', {}).get('type') or job.source_type
         job.title = draft['title']; job.draft_payload = json.dumps(draft)
         job.duplicate_recipe_id = find_duplicate(job, draft, db)

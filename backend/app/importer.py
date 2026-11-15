@@ -9,6 +9,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from .ingredient_parser import parse_imported_ingredient
+
 
 class ImportFailure(Exception):
     pass
@@ -142,13 +144,14 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
         title = str(recipe.get('name') or parser.metadata.get('og:title') or host).strip()
         cuisine = recipe.get('recipeCuisine') or ''
         if isinstance(cuisine, list): cuisine = ', '.join(str(value) for value in cuisine)
-        return {
+        draft = {
             'title': title, 'description': str(recipe.get('description') or '').strip(), 'status': 'Want to Try', 'cuisine': str(cuisine).strip(), 'protein': '',
             'tags': [], 'categories': [], 'prep_minutes': duration_minutes(recipe.get('prepTime')), 'cook_minutes': duration_minutes(recipe.get('cookTime')), 'base_servings': int(servings_match.group()) if servings_match else 4,
-            'ingredients': [{'name': item, 'quantity': None, 'unit': None, 'note': None, 'optional': False} for item in ingredients],
+            'ingredients': [parse_imported_ingredient(item) for item in ingredients],
             'steps': [{'instruction': item, 'tip': None} for item in steps], 'notes': '',
             'source': {'type': 'web', 'label': host, 'url': final_url, 'page': None},
-        }, bool(title and ingredients and steps)
+        }
+        return draft, bool(title and ingredients and steps)
     is_youtube = host.casefold() in {'youtu.be', 'youtube.com', 'www.youtube.com', 'm.youtube.com'}
     if is_youtube:
         video = next((node for value in decoded for node in nodes(value) if type_is(node, 'VideoObject')), {})

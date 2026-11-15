@@ -94,11 +94,14 @@ async def test_multi_image_extraction_requires_review_and_preserves_sources(auth
     output = BytesIO(); Image.new('RGB', (5, 5), '#8a9b6a').save(output, format='PNG')
     created = await authenticated.post('/api/inbox/photos', files=[('files', ('one.png', output.getvalue(), 'image/png')), ('files', ('two.png', output.getvalue(), 'image/png'))])
     item = created.json()
-    fake = FakeResponses(recipe_result('Grandma’s Soup'))
+    extracted_recipe = recipe_result('Grandma’s Soup')
+    extracted_recipe['ingredients'] = [{'name': '1 1/2 cups carrots, diced', 'quantity': None, 'unit': None, 'note': None, 'optional': False}]
+    fake = FakeResponses(extracted_recipe)
     monkeypatch.setattr(ai_service, 'get_responses_client', lambda _settings: fake)
     response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract")
     assert response.status_code == 200
     extracted = response.json()
     assert extracted['status'] == 'Ready for Review'
     assert extracted['draft']['title'] == 'Grandma’s Soup'
+    assert extracted['draft']['ingredients'][0] == {'name': 'carrots, diced', 'quantity': 1.5, 'unit': 'cups', 'note': None, 'optional': False}
     assert len(extracted['assets']) == 2

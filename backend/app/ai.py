@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
 from .models import AIMonthlyBudget, AIRequest
+from .ingredient_parser import normalize_imported_draft
 
 BUDGET_MICROUSD = 10_000_000
 WARNING_MICROUSD = 8_000_000
@@ -134,5 +135,5 @@ RECIPE_SCHEMA = {
 
 def recipe_draft(parsed: dict, source: dict) -> dict:
     from .schemas import RecipeWrite
-    payload = {**parsed, 'status': 'Want to Try', 'source': source}
+    payload = normalize_imported_draft({**parsed, 'status': 'Want to Try', 'source': source})
     return RecipeWrite.model_validate(payload).model_dump(mode='json')

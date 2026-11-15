@@ -135,6 +135,28 @@ docker compose ps
 curl --fail http://127.0.0.1:8080/healthz
 ```
 
+### Deploying updates from GitHub
+
+After changes have been pushed to GitHub, update the running server from its existing checkout:
+
+```bash
+cd /srv/docker/recipe-website
+git pull --ff-only
+docker compose up -d --build
+```
+
+`git pull --ff-only` stops instead of creating an unexpected merge if the server checkout has diverged. `docker compose up -d --build` rebuilds changed images, recreates containers when needed, runs pending Alembic migrations during backend startup, and leaves the persistent database and media mounts in place.
+
+Verify the update:
+
+```bash
+docker compose ps
+curl --fail http://127.0.0.1:8080/healthz
+docker compose logs --tail=100 backend
+```
+
+Back up `/var/lib/recipe-website/` and `/paulwall/discoball/media/recipe-website/` before deploying an update that includes database migrations. Do not replace or commit `deploy/server.env` when pulling application changes.
+
 The backend entrypoint runs `alembic upgrade head` and initializes the shared household before starting Uvicorn. Migration failure stops the backend rather than starting against a partial schema. Inspect status without exposing secrets:
 
 ```bash

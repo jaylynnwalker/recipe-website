@@ -14,4 +14,13 @@ describe('RecipeDetail', () => {
     await user.click(screen.getByRole('tab', { name: 'Instructions' }))
     expect(screen.getByText(/Heat the oven/)).toBeInTheDocument()
   })
+
+  it('does not render an empty cuisine badge for imported recipes', () => {
+    const recipe = { ...recipes[0], cuisine: '   ' }
+    const { container } = render(<RecipeDetail recipe={recipe} onBack={vi.fn()} onAddToDeck={vi.fn()} onEdit={vi.fn()} onMadeThis={vi.fn()} />)
+
+    expect(screen.getByText('Our Rotation')).toBeInTheDocument()
+    expect(container.querySelectorAll('.tag-row span')).toHaveLength(1)
+    expect(container.querySelector('.tag-row')?.textContent).toBe('Our Rotation')
+  })
 })

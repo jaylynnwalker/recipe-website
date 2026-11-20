@@ -5,7 +5,7 @@ from PIL import Image
 import pytest
 from pydantic import SecretStr
 
-from app.ai import AIUnavailable, BUDGET_MICROUSD
+from app.ai import AIUnavailable, BUDGET_MICROUSD, recipe_draft
 from app.config import get_settings
 from app.models import AIMonthlyBudget
 from app import ai as ai_service
@@ -103,5 +103,11 @@ async def test_multi_image_extraction_requires_review_and_preserves_sources(auth
     extracted = response.json()
     assert extracted['status'] == 'Ready for Review'
     assert extracted['draft']['title'] == 'Grandma’s Soup'
-    assert extracted['draft']['ingredients'][0] == {'name': 'carrots, diced', 'quantity': 1.5, 'unit': 'cups', 'note': None, 'optional': False}
+    assert extracted['draft']['ingredients'][0] == {'name': 'carrots, diced', 'quantity': 1.5, 'unit': 'cup', 'note': None, 'optional': False}
     assert len(extracted['assets']) == 2
+
+
+async def test_empty_instagram_title_becomes_readable_review_placeholder():
+    parsed = recipe_result('')
+    draft = recipe_draft(parsed, {'type': 'instagram', 'label': 'instagram.com', 'url': 'https://www.instagram.com/reel/example/', 'page': None})
+    assert draft['title'] == 'Instagram recipe — title needed'

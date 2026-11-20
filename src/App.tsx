@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Layout, type Page } from './components/Layout'
 import type { Recipe } from './types'
-import { api, type AIUsage, type DeckEntryRecord, type GroceryListRecord, type InboxRecord, type PantryStapleRecord, type RecipeInput } from './api'
+import { api, type AIUsage, type ClassificationOptions, type DeckEntryRecord, type GroceryListRecord, type InboxRecord, type PantryStapleRecord, type RecipeInput, type UnitOptions } from './api'
 import { Home } from './screens/Home'
 import { Library } from './screens/Library'
 import { RecipeDetail } from './screens/RecipeDetail'
@@ -12,6 +12,7 @@ import { Settings } from './screens/Settings'
 import { WhatCanIMake } from './screens/WhatCanIMake'
 import { RecipeForm } from './screens/RecipeForm'
 import { HelpMePick } from './screens/HelpMePick'
+import { RecipeCreation } from './screens/RecipeCreation'
 
 export function App() {
   const [page, setPage] = useState<Page>('home')
@@ -28,10 +29,13 @@ export function App() {
   const [reviewingImport, setReviewingImport] = useState<InboxRecord | null>(null)
   const [reviewingIdea, setReviewingIdea] = useState<RecipeInput | null>(null)
   const [aiUsage, setAiUsage] = useState<AIUsage | null>(null)
+  const [classifications, setClassifications] = useState<ClassificationOptions>({ categories: [], cuisines: [], tags: [] })
+  const [units, setUnits] = useState<UnitOptions>({ options: [], aliases: {} })
+  const [creatingRecipe, setCreatingRecipe] = useState(false)
 
   const loadHouseholdData = async () => {
-    const [storedRecipes, staples, storedDeck, groceries, inboxItems, usage] = await Promise.all([api.recipes(), api.pantry(), api.deck(), api.groceryList(), api.inbox(), api.aiUsage()])
-    setRecipes(storedRecipes); setPantryRecords(staples); setDeck(storedDeck); setGroceryList(groceries); setInbox(inboxItems); setAiUsage(usage); setDataError('')
+    const [storedRecipes, staples, storedDeck, groceries, inboxItems, usage, storedClassifications, storedUnits] = await Promise.all([api.recipes(), api.pantry(), api.deck(), api.groceryList(), api.inbox(), api.aiUsage(), api.classifications(), api.units()])
+    setRecipes(storedRecipes); setPantryRecords(staples); setDeck(storedDeck); setGroceryList(groceries); setInbox(inboxItems); setAiUsage(usage); setClassifications(storedClassifications); setUnits(storedUnits); setDataError('')
   }
   useEffect(() => { loadHouseholdData().catch((cause) => setDataError(cause instanceof Error ? cause.message : 'Unable to open Our Kitchen')).finally(() => setLoading(false)) }, [])
 
@@ -73,7 +77,7 @@ export function App() {
     let saved = editingRecipe ? await api.updateRecipe(editingRecipe.id, payload) : await api.createRecipe(payload)
     if (photo) { await api.uploadPhoto(saved.id, photo, `${saved.title} recipe`); saved = await api.recipe(saved.id) }
     const storedRecipes = await api.recipes()
-    setRecipes(storedRecipes); setSelectedRecipe(saved); setEditingRecipe(undefined); setPage('recipes'); setDataError('')
+    setRecipes(storedRecipes); setClassifications(await api.classifications()); setUnits(await api.units()); setSelectedRecipe(saved); setEditingRecipe(undefined); setPage('recipes'); setDataError('')
   }
   const deleteRecipe = async () => {
     if (!editingRecipe) return
@@ -90,32 +94,47 @@ export function App() {
   const importedRecipe = reviewingImport ? inboxDraftToRecipe(reviewingImport) : null
   const saveImportedRecipe = async (payload: RecipeInput, photo?: File) => {
     if (!reviewingImport) return
-    let saved = await api.saveImport(reviewingImport.id, payload)
-    if (photo) { await api.uploadPhoto(saved.id, photo, `${saved.title} recipe`); saved = await api.recipe(saved.id) }
-    const [storedRecipes, inboxItems] = await Promise.all([api.recipes(), api.inbox()])
-    setRecipes(storedRecipes); setInbox(inboxItems); setReviewingImport(null); setSelectedRecipe(saved); setPage('recipes')
+    const inboxId = reviewingImport.id
+    let saved = await api.saveImport(inboxId, payload)
+    setInbox((items) => items.filter((item) => item.id !== inboxId))
+    setReviewingImport(null)
+    setRecipes((items) => [saved, ...items.filter((recipe) => recipe.id !== saved.id)])
+    if (photo) {
+      try { await api.uploadPhoto(saved.id, photo, `${saved.title} recipe`); saved = await api.recipe(saved.id) }
+      catch (cause) { setDataError(cause instanceof Error ? `Recipe saved, but its optional photo could not be uploaded: ${cause.message}` : 'Recipe saved, but its optional photo could not be uploaded.') }
+    }
+    const [storedRecipes, inboxItems, storedClassifications] = await Promise.all([api.recipes(), api.inbox(), api.classifications()])
+    setRecipes(storedRecipes); setInbox(inboxItems); setClassifications(storedClassifications); setUnits(await api.units()); setSelectedRecipe(saved); setPage('recipes')
   }
   const saveGeneratedRecipe = async (payload: RecipeInput, photo?: File) => {
     let saved = await api.createRecipe({ ...payload, status: 'Want to Try', source: { ...payload.source, type: 'ai', label: payload.source.label || 'AI-assisted idea' } })
     if (photo) { await api.uploadPhoto(saved.id, photo, `${saved.title} recipe`); saved = await api.recipe(saved.id) }
-    setRecipes(await api.recipes()); setReviewingIdea(null); setSelectedRecipe(saved); setPage('recipes')
+    setRecipes(await api.recipes()); setClassifications(await api.classifications()); setUnits(await api.units()); setReviewingIdea(null); setSelectedRecipe(saved); setPage('recipes')
+  }
+  const addInboxItem = (item: InboxRecord) => setInbox((items) => [item, ...items.filter((current) => current.id !== item.id)])
+  const importFromRecipesUrl = async (url: string) => { const item = await api.importUrl(url); addInboxItem(item); setCreatingRecipe(false); setReviewingImport(item) }
+  const importFromRecipesPhotos = async (files: File[]) => {
+    const item = await api.importPhotos(files); addInboxItem(item); setCreatingRecipe(false)
+    try { const extracted = await api.aiExtractImport(item.id); addInboxItem(extracted); setReviewingImport(extracted); setAiUsage(await api.aiUsage()) }
+    catch (cause) { const latest = (await api.inbox()).find((current) => current.id === item.id) ?? item; setInbox(await api.inbox()); setReviewingImport(latest); setDataError(cause instanceof Error ? `${cause.message} The photos are saved and can be transcribed manually.` : 'AI extraction failed. The photos are saved for manual review.') }
   }
 
   if (loading) return <div className="app-loading"><p>Opening Our Kitchen…</p></div>
 
   let content
-  if (reviewingImport && importedRecipe) content = <RecipeForm key={reviewingImport.id} recipe={importedRecipe} mode="review" sourceType={reviewingImport.sourceType} onSave={saveImportedRecipe} onCancel={() => setReviewingImport(null)} />
-  else if (reviewingIdea) content = <RecipeForm recipe={draftToRecipe(reviewingIdea, 'generated-idea')} mode="review" sourceType="ai" onSave={saveGeneratedRecipe} onCancel={() => setReviewingIdea(null)} />
-  else if (editingRecipe !== undefined) content = <RecipeForm recipe={editingRecipe} onSave={saveRecipe} onDelete={editingRecipe ? deleteRecipe : undefined} onCancel={() => setEditingRecipe(undefined)} />
+  if (reviewingImport && importedRecipe) content = <RecipeForm key={reviewingImport.id} recipe={importedRecipe} classifications={classifications} units={units} mode="review" sourceType={reviewingImport.sourceType} onSave={saveImportedRecipe} onCancel={() => setReviewingImport(null)} />
+  else if (reviewingIdea) content = <RecipeForm recipe={draftToRecipe(reviewingIdea, 'generated-idea')} classifications={classifications} units={units} mode="review" sourceType="ai" onSave={saveGeneratedRecipe} onCancel={() => setReviewingIdea(null)} />
+  else if (editingRecipe !== undefined) content = <RecipeForm recipe={editingRecipe} classifications={classifications} units={units} onSave={saveRecipe} onDelete={editingRecipe ? deleteRecipe : undefined} onCancel={() => setEditingRecipe(undefined)} />
+  else if (creatingRecipe) content = <RecipeCreation onBack={() => setCreatingRecipe(false)} onManual={() => { setCreatingRecipe(false); setEditingRecipe(null) }} onImportUrl={importFromRecipesUrl} onImportPhotos={importFromRecipesPhotos} />
   else if (selectedRecipe) content = <RecipeDetail recipe={selectedRecipe} onBack={() => setSelectedRecipe(null)} onAddToDeck={addToDeck} onEdit={() => setEditingRecipe(selectedRecipe)} onMadeThis={recordMadeThis} />
   else if (page === 'home') content = <Home recipes={recipes} deckRecipes={deck.map((entry) => entry.recipe)} search={search} onSearch={setSearch} onOpenRecipe={(recipe) => void openRecipe(recipe)} onOpenDeck={() => navigate('deck')} onBrowse={() => navigate('recipes')} onHelpPick={() => navigate('pick')} onWhatCanIMake={() => navigate('make')} onSettings={() => navigate('settings')} onAddToDeck={(recipe) => void addToDeck(recipe)} deckRecipeIds={deck.map((entry) => entry.recipe.id)} deckCount={deck.length} />
-  else if (page === 'recipes') content = <Library recipes={recipes} initialSearch={search} onOpenRecipe={(recipe) => void openRecipe(recipe)} onAddRecipe={() => setEditingRecipe(null)} onAddToDeck={(recipe) => void addToDeck(recipe)} deckRecipeIds={deck.map((entry) => entry.recipe.id)} />
+  else if (page === 'recipes') content = <Library recipes={recipes} initialSearch={search} onOpenRecipe={(recipe) => void openRecipe(recipe)} onAddRecipe={() => setCreatingRecipe(true)} onAddToDeck={(recipe) => void addToDeck(recipe)} deckRecipeIds={deck.map((entry) => entry.recipe.id)} />
   else if (page === 'deck') content = <Deck entries={deck} onChange={updateDeckEntry} onRemove={removeDeckEntry} onClearCompleted={clearCompleted} onBrowse={() => navigate('recipes')} onGroceries={() => navigate('groceries')} />
-  else if (page === 'groceries') content = <Groceries list={groceryList} onPreview={api.previewGroceryUpdate} onApply={async () => setGroceryList(await api.applyGroceryUpdate())} onToggle={async (item) => { const updated = await api.updateGroceryItem(item.id, { checked: !item.checked }); setGroceryList((list) => ({ ...list, items: list.items.map((current) => current.id === updated.id ? updated : current) })) }} onAdd={async (label, category, quantity, unit) => { const item = await api.addGroceryItem({ label, category, quantity, unit }); setGroceryList((list) => ({ ...list, items: [...list.items, item] })) }} onEdit={async (item, patch) => { const updated = await api.updateGroceryItem(item.id, patch); setGroceryList((list) => ({ ...list, items: list.items.map((current) => current.id === updated.id ? updated : current) })) }} onDelete={async (item) => { await api.removeGroceryItem(item.id); setGroceryList((list) => ({ ...list, items: list.items.filter((current) => current.id !== item.id) })) }} onAddBack={async (staple) => { const item = await api.addBackStaple(staple.id); setGroceryList((list) => ({ ...list, items: [...list.items, item], excludedStaples: list.excludedStaples.filter((current) => current.id !== staple.id) })) }} />
+  else if (page === 'groceries') content = <Groceries list={groceryList} onPreview={api.previewGroceryUpdate} onApply={async () => { const updated = await api.applyGroceryUpdate(); setGroceryList(updated) }} onToggle={async (item) => { const updated = await api.updateGroceryItem(item.id, { checked: !item.checked }); setGroceryList((list) => ({ ...list, items: list.items.map((current) => current.id === updated.id ? updated : current) })) }} onAdd={async (label, category, quantity, unit) => { const item = await api.addGroceryItem({ label, category, quantity, unit }); setGroceryList((list) => ({ ...list, items: [...list.items, item] })) }} onEdit={async (item, patch) => { const updated = await api.updateGroceryItem(item.id, patch); setGroceryList((list) => ({ ...list, items: list.items.map((current) => current.id === updated.id ? updated : current) })) }} onDelete={async (item) => { await api.removeGroceryItem(item.id); setGroceryList((list) => ({ ...list, items: list.items.filter((current) => current.id !== item.id) })) }} onAddBack={async (staple) => { const item = await api.addBackStaple(staple.id); setGroceryList((list) => ({ ...list, items: [...list.items, item], excludedStaples: list.excludedStaples.filter((current) => current.id !== staple.id) })) }} />
   else if (page === 'settings') content = <Settings staples={pantryRecords.map((record) => record.name)} aiUsage={aiUsage} onChange={(names) => void updateStaples(names)} onBack={() => navigate('home')} />
   else if (page === 'make') content = <WhatCanIMake staples={pantryRecords.map((record) => record.name)} onOpenRecipe={(recipe) => void openRecipe(recipe)} onReviewIdea={setReviewingIdea} onBack={() => navigate('home')} />
   else if (page === 'pick') content = <HelpMePick onBack={() => navigate('home')} onOpenRecipe={(recipe) => void openRecipe(recipe)} onAddToDeck={(recipe) => void addToDeck(recipe)} onReviewIdea={setReviewingIdea} deckRecipeIds={deck.map((entry) => entry.recipe.id)} />
-  else content = <Inbox items={inbox} onImportUrl={async (url) => { const item = await api.importUrl(url); setInbox((items) => [item, ...items]) }} onImportPhotos={async (files) => { const item = await api.importPhotos(files); setInbox((items) => [item, ...items]) }} onReview={setReviewingImport} onAiExtract={async (item) => { const updated = await api.aiExtractImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)); setAiUsage(await api.aiUsage()) }} onRetry={async (item) => { const updated = await api.retryImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)) }} onDelete={async (item) => { if (!window.confirm(`Delete “${item.title}” from the Inbox?`)) return; await api.deleteImport(item.id); setInbox((items) => items.filter((current) => current.id !== item.id)) }} />
+  else content = <Inbox items={inbox} onManual={() => setEditingRecipe(null)} onImportUrl={async (url) => { const item = await api.importUrl(url); addInboxItem(item) }} onImportPhotos={async (files) => { const item = await api.importPhotos(files); addInboxItem(item) }} onReview={setReviewingImport} onAiExtract={async (item) => { const updated = await api.aiExtractImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)); setAiUsage(await api.aiUsage()) }} onRetry={async (item) => { const updated = await api.retryImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)) }} onDelete={async (item) => { if (!window.confirm(`Delete “${item.title}” from the Inbox?`)) return; await api.deleteImport(item.id); setInbox((items) => items.filter((current) => current.id !== item.id)) }} />
 
   return <Layout page={page} onNavigate={navigate}>{dataError && <p className="data-error" role="alert">{dataError}</p>}{content}</Layout>
 }

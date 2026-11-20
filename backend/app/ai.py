@@ -135,5 +135,9 @@ RECIPE_SCHEMA = {
 
 def recipe_draft(parsed: dict, source: dict) -> dict:
     from .schemas import RecipeWrite
-    payload = normalize_imported_draft({**parsed, 'status': 'Want to Try', 'source': source})
+    title = str(parsed.get('title') or '').strip()
+    if not title:
+        label = {'instagram': 'Instagram', 'facebook': 'Facebook', 'youtube': 'YouTube'}.get(source.get('type'), 'Imported')
+        title = f'{label} recipe — title needed'
+    payload = normalize_imported_draft({**parsed, 'title': title, 'status': 'Want to Try', 'source': source})
     return RecipeWrite.model_validate(payload).model_dump(mode='json')

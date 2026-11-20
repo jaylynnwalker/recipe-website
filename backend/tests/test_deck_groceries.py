@@ -61,3 +61,35 @@ async def test_excluded_staple_can_be_added_back(authenticated, recipe_payload):
     stored = (await authenticated.get('/api/grocery-list')).json()
     assert any(item['label'] == 'Salt' and item['manual'] for item in stored['items'])
     assert stored['excluded_staples'] == []
+
+
+async def test_multiple_deck_recipes_consolidate_and_refresh_after_lineup_changes(authenticated, recipe_payload):
+    first = {**recipe_payload, 'title': 'Carrot Stew', 'ingredients': [
+        {'name': 'Carrots', 'quantity': 1, 'unit': 'lb', 'note': None, 'optional': False},
+        {'name': 'Fresh herbs', 'quantity': None, 'unit': None, 'note': None, 'optional': False},
+    ]}
+    second = {**recipe_payload, 'title': 'Roasted Carrots', 'base_servings': 2, 'ingredients': [
+        {'name': 'Carrots', 'quantity': 8, 'unit': 'oz', 'note': None, 'optional': False},
+    ]}
+    first_recipe = (await authenticated.post('/api/recipes', json=first)).json()
+    second_recipe = (await authenticated.post('/api/recipes', json=second)).json()
+    first_deck = (await authenticated.post('/api/deck', json={'recipe_id': first_recipe['id'], 'servings': 4})).json()
+    await authenticated.post('/api/deck', json={'recipe_id': second_recipe['id'], 'servings': 4})
+    manual = (await authenticated.post('/api/grocery-list/items', json={'label': 'Coffee', 'category': 'Pantry'})).json()
+
+    applied = (await authenticated.post('/api/grocery-list/apply')).json()
+    carrots = next(item for item in applied['items'] if item['name'] == 'carrots')
+    herbs = next(item for item in applied['items'] if item['name'] == 'fresh herbs')
+    assert carrots['quantity'] == 2 and carrots['unit'] == 'lb'
+    assert herbs['quantity'] is None and herbs['unit'] is None
+    assert any(item['id'] == manual['id'] for item in applied['items'])
+
+    await authenticated.delete(f"/api/deck/{first_deck['id']}")
+    preview = (await authenticated.post('/api/grocery-list/preview')).json()
+    assert preview['updates'] == ['16 oz Carrots']
+    assert preview['removals'] == ['Fresh herbs']
+    refreshed = (await authenticated.post('/api/grocery-list/apply')).json()
+    remaining_carrots = next(item for item in refreshed['items'] if item['name'] == 'carrots')
+    assert remaining_carrots['quantity'] == 16 and remaining_carrots['unit'] == 'oz'
+    assert not any(item['name'] == 'fresh herbs' for item in refreshed['items'])
+    assert any(item['id'] == manual['id'] for item in refreshed['items'])

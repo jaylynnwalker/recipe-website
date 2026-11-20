@@ -2,17 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 import re
 
-
-UNIT_ALIASES = {
-    'tablespoon': 'tbsp', 'tablespoons': 'tbsp', 'tbs': 'tbsp',
-    'teaspoon': 'tsp', 'teaspoons': 'tsp',
-    'pound': 'lb', 'pounds': 'lb', 'lbs': 'lb',
-    'ounce': 'oz', 'ounces': 'oz',
-    'cup': 'cup', 'cups': 'cup',
-    'clove': 'clove', 'cloves': 'clove',
-    'can': 'can', 'cans': 'can',
-}
-UNIT_FACTORS = {'oz': ('mass', Decimal('1')), 'lb': ('mass', Decimal('16')), 'tsp': ('volume', Decimal('1')), 'tbsp': ('volume', Decimal('3')), 'cup': ('volume', Decimal('48'))}
+from .units import UNIT_FACTORS, normalize_unit
 
 PRODUCE = {'apple', 'avocado', 'basil', 'broccoli', 'carrot', 'cilantro', 'cucumber', 'garlic', 'ginger', 'lemon', 'lime', 'mushroom', 'onion', 'pepper', 'potato', 'spinach', 'tomato'}
 MEAT = {'beef', 'chicken', 'fish', 'pork', 'salmon', 'sausage', 'shrimp', 'steak', 'turkey'}
@@ -23,13 +13,6 @@ FROZEN = {'frozen', 'ice cream'}
 
 def normalize_name(value: str) -> str:
     return ' '.join(re.sub(r'[^a-z0-9 ]+', ' ', value.casefold()).split())
-
-
-def normalize_unit(value: str | None) -> str | None:
-    if not value or not value.strip():
-        return None
-    unit = value.strip().casefold()
-    return UNIT_ALIASES.get(unit, unit)
 
 
 def ingredient_category(name: str) -> str:

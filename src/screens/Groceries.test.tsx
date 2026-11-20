@@ -34,6 +34,14 @@ describe('Groceries', () => {
     expect(onAddBack).toHaveBeenCalledWith(list.excludedStaples[0])
   })
 
+  it('allows grocery items to be checked off', async () => {
+    const user = userEvent.setup()
+    const onToggle = vi.fn().mockResolvedValue(undefined)
+    render(<Groceries {...props} onToggle={onToggle} />)
+    await user.click(screen.getByRole('checkbox', { name: /2 lemons/ }))
+    expect(onToggle).toHaveBeenCalledWith(list.items[0])
+  })
+
   it('shows proposed changes before applying them', async () => {
     const user = userEvent.setup()
     render(<Groceries {...props} onPreview={vi.fn().mockResolvedValue({ additions: ['2 carrots'], updates: [], removals: ['Old item'], excludedStaples: ['Salt'], unchangedCount: 1 })} />)
@@ -41,5 +49,24 @@ describe('Groceries', () => {
     expect(await screen.findByText('2 carrots')).toBeInTheDocument()
     expect(screen.getByText('Old item')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Apply update' })).toBeInTheDocument()
+  })
+
+  it('keeps the current list visible when preview generation fails', async () => {
+    const user = userEvent.setup()
+    render(<Groceries {...props} onPreview={vi.fn().mockRejectedValue(new Error('Unable to generate preview'))} />)
+    await user.click(screen.getByRole('button', { name: 'Review deck changes' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to generate preview')
+    expect(screen.getByText('2 lemons')).toBeInTheDocument()
+    expect(screen.getByText('Parmesan')).toBeInTheDocument()
+  })
+
+  it('keeps the current list and review open when applying fails', async () => {
+    const user = userEvent.setup()
+    render(<Groceries {...props} onApply={vi.fn().mockRejectedValue(new Error('Update failed'))} />)
+    await user.click(screen.getByRole('button', { name: 'Review deck changes' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply update' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Update failed')
+    expect(screen.getByRole('region', { name: 'Grocery list update review' })).toBeInTheDocument()
+    expect(screen.getByText('2 lemons')).toBeInTheDocument()
   })
 })

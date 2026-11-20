@@ -15,7 +15,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..dependencies import Workspace, current_workspace
 from ..ai import AIUnavailable, BudgetExceeded, RECIPE_SCHEMA, recipe_draft, run_structured
-from ..importer import ImportFailure, empty_draft, extract_url, fetch_public_html, validate_external_url
+from ..importer import ImportFailure, empty_draft, extract_url, fetch_public_html, social_source_type, validate_external_url
 from ..ingredient_parser import normalize_imported_draft
 from ..models import ImportAsset, ImportJob, Recipe
 from ..schemas import InboxUrlCreate, RecipeRead, RecipeWrite
@@ -64,8 +64,13 @@ async def process_job(job: ImportJob, db: Session):
         job.title = draft['title']; job.draft_payload = json.dumps(draft)
         job.duplicate_recipe_id = find_duplicate(job, draft, db)
         job.status = 'Ready for Review'
-        if not complete and job.source_type != 'youtube':
-            job.error_message = 'Some recipe fields were unavailable and require manual completion.'
+        if not complete:
+            if job.source_type in {'youtube', 'instagram', 'facebook'}:
+                missing_title = ' The source did not expose a title; add it before saving.' if 'title needed' in draft['title'].casefold() else ''
+                job.error_message = f'Only publicly accessible title and description metadata were available.{missing_title} Review the source and complete missing recipe details manually, or try AI extraction.'
+            else:
+                missing_title = ' Add the correct recipe title.' if 'title needed' in draft['title'].casefold() else ''
+                job.error_message = f'Some recipe fields were unavailable and require manual completion.{missing_title}'
     except ImportFailure as error:
         job.status = 'Failed'; job.error_message = str(error)
     except Exception:
@@ -75,7 +80,7 @@ async def process_job(job: ImportJob, db: Session):
 
 @router.get('')
 async def list_jobs(workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
-    jobs = db.scalars(select(ImportJob).options(*job_options()).where(ImportJob.household_id == workspace.household_id).order_by(ImportJob.created_at.desc())).all()
+    jobs = db.scalars(select(ImportJob).options(*job_options()).where(ImportJob.household_id == workspace.household_id, ImportJob.status != 'Saved').order_by(ImportJob.created_at.desc())).all()
     return [serialize(job) for job in jobs]
 
 
@@ -84,7 +89,7 @@ async def create_url_import(payload: InboxUrlCreate, workspace: Workspace = Depe
     try: url = validate_external_url(payload.url.strip())
     except ImportFailure as error: raise HTTPException(status_code=422, detail=str(error))
     host = (urlparse(url).hostname or '').casefold()
-    source_type = 'youtube' if host in {'youtu.be', 'youtube.com', 'www.youtube.com', 'm.youtube.com'} else 'web'
+    source_type = social_source_type(host) or 'web'
     draft = empty_draft('Pending recipe import', '', url, source_type, host)
     job = ImportJob(household_id=workspace.household_id, source_type=source_type, source_url=url, status='Pending', title='Pending recipe import', draft_payload=json.dumps(draft))
     db.add(job); db.commit(); db.refresh(job)
@@ -155,7 +160,9 @@ async def ai_extract_import(job_id: str, workspace: Workspace = Depends(current_
     try:
         parsed = await run_structured(db, workspace.household_id, 'image_extraction' if images else 'import_fallback', 'You transcribe recipes faithfully. Never invent unreadable or missing ingredients, quantities, times, or instructions. Preserve uncertainty as null or empty.', prompt, RECIPE_SCHEMA, images)
         draft = recipe_draft(parsed, source)
-        job = get_job(job_id, workspace.household_id, db); job.draft_payload = json.dumps(draft); job.title = draft['title'] or job.title; job.status = 'Ready for Review'; job.duplicate_recipe_id = find_duplicate(job, draft, db); db.commit()
+        job = get_job(job_id, workspace.household_id, db); job.draft_payload = json.dumps(draft); job.title = draft['title'] or job.title; job.status = 'Ready for Review'; job.duplicate_recipe_id = find_duplicate(job, draft, db)
+        if 'title needed' in draft['title'].casefold(): job.error_message = 'The source did not expose a recipe title. Add the correct title before saving.'
+        db.commit()
     except Exception as error:
         job = get_job(job_id, workspace.household_id, db); job.status = 'Failed'; job.error_message = str(error) if str(error) else 'AI extraction failed. Retry or enter the recipe manually.'; db.commit()
         if isinstance(error, BudgetExceeded): raise HTTPException(status_code=429, detail=str(error))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .grocery import UNIT_ALIASES
+from .units import UNIT_ALIASES, normalize_unit
 
 
 UNICODE_FRACTIONS = {
@@ -13,19 +13,7 @@ UNICODE_FRACTIONS = {
     '⅜': '3/8', '⅝': '5/8', '⅞': '7/8',
 }
 
-# Grocery-list aliases are the shared baseline. These additional units are
-# common in imported recipe text but do not need conversion during shopping.
-IMPORT_UNITS = set(UNIT_ALIASES) | set(UNIT_ALIASES.values()) | {
-    'tsp', 'tbsp', 'oz', 'lb', 'g', 'gram', 'grams', 'kg', 'kilogram', 'kilograms',
-    'mg', 'milligram', 'milligrams', 'ml', 'milliliter', 'milliliters', 'l',
-    'liter', 'liters', 'litre', 'litres', 'fluid ounce', 'fluid ounces', 'fl oz',
-    'quart', 'quarts', 'qt', 'pint', 'pints', 'pt', 'gallon', 'gallons', 'gal',
-    'pinch', 'pinches', 'dash', 'dashes', 'bunch', 'bunches', 'package',
-    'packages', 'pkg', 'packet', 'packets', 'stick', 'sticks', 'slice', 'slices',
-    'piece', 'pieces', 'head', 'heads', 'sprig', 'sprigs', 'stalk', 'stalks',
-    'bottle', 'bottles', 'jar', 'jars', 'box', 'boxes', 'can', 'cans', 'clove',
-    'cloves',
-}
+IMPORT_UNITS = set(UNIT_ALIASES) | {value.casefold() for value in UNIT_ALIASES.values()}
 
 QUANTITY_RE = re.compile(
     r'^(?P<quantity>(?:\d+(?:\.\d+)?|\.\d+)(?:\s+\d+/\d+)?|\d+/\d+)(?=\s|$)\s*'
@@ -68,7 +56,7 @@ def _take_unit(value: str) -> tuple[str | None, str]:
         pattern = re.compile(rf'^{re.escape(candidate).replace(r"\ ", r"\s+")}(?:\.)?(?=$|\s|,)', re.IGNORECASE)
         match = pattern.match(value)
         if match:
-            unit = match.group(0).rstrip('.').casefold()
+            unit = normalize_unit(match.group(0).rstrip('.'))
             return unit, value[match.end():].lstrip()
     return None, value
 
@@ -113,6 +101,7 @@ def parse_imported_ingredient(text: str) -> dict[str, Any]:
 def normalize_imported_ingredient(ingredient: dict[str, Any]) -> dict[str, Any]:
     """Parse only unstructured imports; explicit fields and notes win unchanged."""
     result = dict(ingredient)
+    result['unit'] = normalize_unit(result.get('unit'))
     if result.get('quantity') is not None:
         return result
     parsed = parse_imported_ingredient(str(result.get('name') or ''))

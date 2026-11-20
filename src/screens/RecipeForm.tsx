@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import type { Recipe, RecipeStatus } from '../types'
-import type { RecipeInput } from '../api'
+import type { ClassificationOptions, RecipeInput, UnitOptions } from '../api'
+import { ClassificationFields } from '../components/ClassificationFields'
+import { canonicalUnit, UnitField } from '../components/UnitField'
 
 type IngredientDraft = { name: string; quantity: string; unit: string; note: string }
 type StepDraft = { instruction: string; tip: string }
@@ -8,8 +10,10 @@ type StepDraft = { instruction: string; tip: string }
 const emptyIngredient = (): IngredientDraft => ({ name: '', quantity: '', unit: '', note: '' })
 const emptyStep = (): StepDraft => ({ instruction: '', tip: '' })
 
-export function RecipeForm({ recipe, mode = recipe ? 'edit' : 'add', sourceType, onSave, onDelete, onCancel }: {
+export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'edit' : 'add', sourceType, onSave, onDelete, onCancel }: {
   recipe?: Recipe | null
+  classifications: ClassificationOptions
+  units: UnitOptions
   mode?: 'add' | 'edit' | 'review'
   sourceType?: string
   onSave: (payload: RecipeInput, photo?: File) => Promise<void>
@@ -21,8 +25,9 @@ export function RecipeForm({ recipe, mode = recipe ? 'edit' : 'add', sourceType,
   const [status, setStatus] = useState<RecipeStatus>(recipe?.status ?? 'Want to Try')
   const [cuisine, setCuisine] = useState(recipe?.cuisine ?? '')
   const [protein, setProtein] = useState(recipe?.protein ?? '')
-  const [categories, setCategories] = useState((recipe?.categories ?? []).join(', '))
-  const [tags, setTags] = useState(recipe?.tags.join(', ') ?? '')
+  const initialCategories = recipe?.categories ?? []
+  const [category, setCategory] = useState(initialCategories[0] ?? '')
+  const [tags, setTags] = useState(recipe?.tags ?? [])
   const [prepMinutes, setPrepMinutes] = useState(recipe?.prepMinutes ?? 0)
   const [cookMinutes, setCookMinutes] = useState(recipe?.cookMinutes ?? 0)
   const [servings, setServings] = useState(recipe?.baseServings ?? 4)
@@ -43,13 +48,13 @@ export function RecipeForm({ recipe, mode = recipe ? 'edit' : 'add', sourceType,
       setError('Add a title, at least one ingredient, and at least one instruction.')
       return
     }
-    const split = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean)
+    const submittedCategories = category.trim() === (initialCategories[0] ?? '').trim() && initialCategories.length > 1 ? initialCategories : (category.trim() ? [category.trim()] : [])
     setBusy(true); setError('')
     try {
       await onSave({
-        title: title.trim(), description: description.trim(), status, cuisine: cuisine.trim(), protein: protein.trim(), categories: split(categories), tags: split(tags),
+        title: title.trim(), description: description.trim(), status, cuisine: cuisine.trim(), protein: protein.trim(), categories: submittedCategories, tags,
         prep_minutes: prepMinutes, cook_minutes: cookMinutes, base_servings: servings,
-        ingredients: cleanIngredients.map((item) => ({ name: item.name.trim(), quantity: item.quantity === '' ? null : Number(item.quantity), unit: item.unit.trim() || null, note: item.note.trim() || null, optional: false })),
+        ingredients: cleanIngredients.map((item) => ({ name: item.name.trim(), quantity: item.quantity === '' ? null : Number(item.quantity), unit: canonicalUnit(item.unit, units) || null, note: item.note.trim() || null, optional: false })),
         steps: cleanSteps.map((item) => ({ instruction: item.instruction.trim(), tip: item.tip.trim() || null })), notes: notes.trim(),
         source: { type: sourceType ?? (sourceUrl ? 'web' : 'household'), label: sourceName.trim() || 'Household recipe', url: sourceUrl.trim() || null, page: null },
       }, photo)
@@ -72,11 +77,10 @@ export function RecipeForm({ recipe, mode = recipe ? 'edit' : 'add', sourceType,
         <label>Servings<input type="number" min="1" max="100" value={servings} onChange={(event) => setServings(Number(event.target.value))} /></label>
         <label>Prep time (minutes)<input type="number" min="0" value={prepMinutes} onChange={(event) => setPrepMinutes(Number(event.target.value))} /></label>
         <label>Cook time (minutes)<input type="number" min="0" value={cookMinutes} onChange={(event) => setCookMinutes(Number(event.target.value))} /></label>
-        <label>Cuisine<input value={cuisine} onChange={(event) => setCuisine(event.target.value)} /></label><label>Protein<input value={protein} onChange={(event) => setProtein(event.target.value)} /></label>
-        <label>Categories <small>Separate with commas</small><input value={categories} onChange={(event) => setCategories(event.target.value)} /></label><label>Tags <small>Separate with commas</small><input value={tags} onChange={(event) => setTags(event.target.value)} /></label>
+        <ClassificationFields options={classifications} cuisine={cuisine} category={category} tags={tags} onCuisineChange={setCuisine} onCategoryChange={setCategory} onTagsChange={setTags} /><label>Protein<input value={protein} onChange={(event) => setProtein(event.target.value)} /></label>
       </div></section>
       <section><div className="form-section-title"><h2>Ingredients</h2><button className="secondary small" type="button" onClick={() => setIngredients([...ingredients, emptyIngredient()])}>+ Add ingredient</button></div>
-        <div className="form-repeater">{ingredients.map((item, index) => <div className="ingredient-fields" key={index}><input aria-label={`Ingredient ${index + 1}`} placeholder="Ingredient" value={item.name} onChange={(event) => updateIngredient(index, 'name', event.target.value)} /><input aria-label={`Quantity ${index + 1}`} type="number" min="0" step="any" placeholder="Qty" value={item.quantity} onChange={(event) => updateIngredient(index, 'quantity', event.target.value)} /><input aria-label={`Unit ${index + 1}`} placeholder="Unit" value={item.unit} onChange={(event) => updateIngredient(index, 'unit', event.target.value)} /><input aria-label={`Ingredient note ${index + 1}`} placeholder="Note (optional)" value={item.note} onChange={(event) => updateIngredient(index, 'note', event.target.value)} /><button className="remove-row" type="button" aria-label={`Remove ingredient ${index + 1}`} onClick={() => setIngredients(ingredients.filter((_, position) => position !== index))}>×</button></div>)}</div>
+        <div className="form-repeater">{ingredients.map((item, index) => <div className="ingredient-fields" key={index}><input aria-label={`Ingredient ${index + 1}`} placeholder="Ingredient" value={item.name} onChange={(event) => updateIngredient(index, 'name', event.target.value)} /><input aria-label={`Quantity ${index + 1}`} type="number" min="0" step="any" placeholder="Qty" value={item.quantity} onChange={(event) => updateIngredient(index, 'quantity', event.target.value)} /><UnitField index={index} value={item.unit} units={units} onChange={(value) => updateIngredient(index, 'unit', value)} /><input aria-label={`Ingredient note ${index + 1}`} placeholder="Note (optional)" value={item.note} onChange={(event) => updateIngredient(index, 'note', event.target.value)} /><button className="remove-row" type="button" aria-label={`Remove ingredient ${index + 1}`} onClick={() => setIngredients(ingredients.filter((_, position) => position !== index))}>×</button></div>)}</div>
       </section>
       <section><div className="form-section-title"><h2>Instructions</h2><button className="secondary small" type="button" onClick={() => setSteps([...steps, emptyStep()])}>+ Add step</button></div>
         <div className="form-repeater">{steps.map((step, index) => <div className="step-fields" key={index}><span>{index + 1}</span><div><textarea aria-label={`Instruction ${index + 1}`} placeholder="Describe this step" rows={2} value={step.instruction} onChange={(event) => updateStep(index, 'instruction', event.target.value)} /><input aria-label={`Cooking tip ${index + 1}`} placeholder="Inline cooking tip (optional)" value={step.tip} onChange={(event) => updateStep(index, 'tip', event.target.value)} /></div><button className="remove-row" type="button" aria-label={`Remove instruction ${index + 1}`} onClick={() => setSteps(steps.filter((_, position) => position !== index))}>×</button></div>)}</div>

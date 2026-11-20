@@ -1,4 +1,5 @@
 import uuid
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from ..dependencies import Workspace, current_workspace
 from ..models import Category, CookingEvent, Ingredient, Recipe, RecipeIngredient, RecipePhoto, RecipeStep, Tag
 from ..schemas import PhotoRead, RecipeRead, RecipeWrite
 from ..serializers import recipe_to_dict
+from ..units import COMMON_UNITS, UNIT_ALIASES, normalize_unit
 
 
 router = APIRouter(prefix='/recipes', tags=['recipes'])
@@ -33,7 +35,8 @@ def get_household_recipe(recipe_id: str, household_id: str, db: Session) -> Reci
 
 def get_or_create_named(db: Session, model, name: str):
     value = ' '.join(name.split())
-    existing = db.scalar(select(model).where(model.name == value))
+    normalized = normalize_classification(value)
+    existing = next((item for item in db.scalars(select(model)).all() if normalize_classification(item.name) == normalized), None)
     if existing:
         return existing
     item = model(name=value)
@@ -42,11 +45,24 @@ def get_or_create_named(db: Session, model, name: str):
     return item
 
 
+def normalize_classification(value: str) -> str:
+    return re.sub(r'[\s_-]+', ' ', value.strip()).casefold()
+
+
+def canonical_cuisine(db: Session, household_id: str, value: str) -> str:
+    cleaned = ' '.join(value.split())
+    if not cleaned:
+        return ''
+    normalized = normalize_classification(cleaned)
+    existing = db.scalars(select(Recipe.cuisine).where(Recipe.household_id == household_id, Recipe.cuisine != '')).all()
+    return next((name for name in existing if normalize_classification(name) == normalized), cleaned)
+
+
 def apply_recipe_payload(recipe: Recipe, payload: RecipeWrite, db: Session):
     recipe.title = payload.title.strip()
     recipe.description = payload.description
     recipe.status = payload.status
-    recipe.cuisine = payload.cuisine.strip()
+    recipe.cuisine = canonical_cuisine(db, recipe.household_id, payload.cuisine)
     recipe.protein = payload.protein.strip()
     recipe.prep_minutes = payload.prep_minutes
     recipe.cook_minutes = payload.cook_minutes
@@ -93,6 +109,35 @@ async def list_recipes(q: str | None = Query(default=None, max_length=200), stat
         statement = statement.where(or_(Recipe.title.ilike(term), Recipe.cuisine.ilike(term), Recipe.id.in_(ingredient_recipe_ids), Recipe.id.in_(tag_recipe_ids)))
     recipes = db.scalars(statement.order_by(Recipe.updated_at.desc())).unique().all()
     return [recipe_to_dict(recipe) for recipe in recipes]
+
+
+@router.get('/classifications')
+async def list_classifications(workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
+    recipes = db.scalars(select(Recipe).options(selectinload(Recipe.tags), selectinload(Recipe.categories)).where(Recipe.household_id == workspace.household_id)).unique().all()
+    def unique(values):
+        result = {}
+        for value in values:
+            cleaned = ' '.join(value.split())
+            if cleaned:
+                result.setdefault(normalize_classification(cleaned), cleaned)
+        return sorted(result.values(), key=str.casefold)
+    return {
+        'categories': unique(category.name for recipe in recipes for category in recipe.categories),
+        'cuisines': unique(recipe.cuisine for recipe in recipes),
+        'tags': unique(tag.name for recipe in recipes for tag in recipe.tags),
+    }
+
+
+@router.get('/units')
+async def list_units(workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
+    stored = db.scalars(select(RecipeIngredient.unit).join(Recipe).where(Recipe.household_id == workspace.household_id, RecipeIngredient.unit.is_not(None))).all()
+    options = list(COMMON_UNITS)
+    known = {unit.casefold() for unit in options}
+    for value in stored:
+        unit = normalize_unit(value)
+        if unit and unit.casefold() not in known:
+            options.append(unit); known.add(unit.casefold())
+    return {'options': options, 'aliases': UNIT_ALIASES}
 
 
 @router.post('', response_model=RecipeRead, status_code=status.HTTP_201_CREATED)

@@ -123,7 +123,7 @@ flowchart TD
     S[Submit URL / Photo / Manual Entry] --> Q[Persist Inbox Job]
     Q --> X{Source Type}
     X -->|Recipe webpage| P[Structured data / HTML parser]
-    X -->|YouTube| Y[Accessible description / transcript]
+    X -->|YouTube / Instagram / Facebook| Y[Accessible public metadata / description]
     X -->|Photo / handwriting| V[Image-capable AI extraction]
     X -->|Manual| M[Editable draft]
     P --> R[Normalize / Validate]
@@ -137,14 +137,14 @@ flowchart TD
 
 - Save the inbox entry before making network or AI calls.
 - Use deterministic webpage extraction first; only invoke AI when requested/necessary.
-- For YouTube, availability of descriptions/transcripts varies; never claim universal extraction.
+- For social sources, public metadata and descriptions vary by platform and post; never claim universal caption or transcript extraction and never bypass access restrictions.
 - For cookbook photos, accept multiple pages and preserve page order; show original image alongside editable extraction.
 - Limit upload size/type; validate MIME types, strip unsafe filenames, and store outside public static directories.
 - Avoid fetching arbitrary internal/private URLs supplied as recipe links: enforce SSRF protections (block loopback, private IP ranges, redirects into internal networks, etc.).
 - Respect source licensing and access controls; retain attribution and do not bypass paywalls or platform restrictions.
 - Validate model output against a strict schema; flag uncertainty instead of fabricating missing details.
 - The initial implementation persists the job before running bounded extraction in the request process. Status and retry data are durable; a separate task queue is unnecessary at household scale and can be introduced later if import latency requires it.
-- YouTube importing reads only publicly returned page metadata/descriptions. It does not download video content or bypass transcript/access restrictions.
+- YouTube, Instagram, and Facebook importing reads only publicly returned structured metadata/descriptions. It does not download video content or bypass authentication, transcript, or access restrictions.
 - Original cookbook/handwritten images are retained with the Inbox item for manual transcription until that item is explicitly deleted. No vision extraction is implied without a configured AI provider.
 
 ## 8. AI integration and cost controls

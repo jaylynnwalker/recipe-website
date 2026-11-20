@@ -27,3 +27,15 @@ def test_serving_scaling_consolidation_and_staple_exclusion():
     assert excluded == ['Salt']
     assert all(item.name != 'Ignored' for item in items)
     assert format_item_label('Tomatoes', Decimal('20'), None) == '20 Tomatoes'
+
+
+def test_incomplete_ingredients_are_preserved_without_unsafe_quantities():
+    entries = [
+        deck(4, 4, [ingredient('Fresh herbs', None, None), ingredient('Lime', 2, None)]),
+        deck(2, 2, [ingredient('Fresh herbs', 1, None), ingredient('Lime', None, None)]),
+    ]
+    items, excluded = generate_items(entries, [])
+    assert excluded == []
+    assert next(item for item in items if item.normalized_name == 'fresh herbs').quantity is None
+    assert next(item for item in items if item.normalized_name == 'lime').quantity is None
+    assert all(item.unit is None for item in items)

@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
+from .units import normalize_unit
+
 
 RecipeStatus = Literal['Our Rotation', 'Want to Try', 'Archived']
 
@@ -13,6 +15,11 @@ class IngredientWrite(BaseModel):
     unit: str | None = Field(default=None, max_length=60)
     note: str | None = Field(default=None, max_length=300)
     optional: bool = False
+
+    @field_validator('unit')
+    @classmethod
+    def standardize_unit(cls, value: str | None) -> str | None:
+        return normalize_unit(value)
 
 
 class IngredientRead(IngredientWrite):
@@ -67,6 +74,11 @@ class RecipeWrite(BaseModel):
             if name and name.casefold() not in {item.casefold() for item in cleaned}:
                 cleaned.append(name[:100])
         return cleaned
+
+    @field_validator('cuisine')
+    @classmethod
+    def clean_cuisine(cls, value: str) -> str:
+        return ' '.join(value.split())[:100]
 
 
 class RecipeRead(RecipeWrite):

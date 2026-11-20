@@ -141,23 +141,29 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
         ingredients = [str(item).strip() for item in raw_ingredients if str(item).strip()]
         steps = instruction_text(recipe.get('recipeInstructions', []))
         servings_match = re.search(r'\d+', str(recipe.get('recipeYield', '')))
-        title = str(recipe.get('name') or parser.metadata.get('og:title') or host).strip()
+        extracted_title = str(recipe.get('name') or parser.metadata.get('og:title') or parser.metadata.get('twitter:title') or '').strip()
+        title = extracted_title or 'Recipe title needed'
         cuisine = recipe.get('recipeCuisine') or ''
         if isinstance(cuisine, list): cuisine = ', '.join(str(value) for value in cuisine)
+        raw_categories = recipe.get('recipeCategory') or []
+        if isinstance(raw_categories, str): raw_categories = [item.strip() for item in raw_categories.split(',')]
+        raw_keywords = recipe.get('keywords') or []
+        if isinstance(raw_keywords, str): raw_keywords = [item.strip() for item in raw_keywords.split(',')]
         draft = {
             'title': title, 'description': str(recipe.get('description') or '').strip(), 'status': 'Want to Try', 'cuisine': str(cuisine).strip(), 'protein': '',
-            'tags': [], 'categories': [], 'prep_minutes': duration_minutes(recipe.get('prepTime')), 'cook_minutes': duration_minutes(recipe.get('cookTime')), 'base_servings': int(servings_match.group()) if servings_match else 4,
+            'tags': [str(item).strip() for item in raw_keywords if str(item).strip()], 'categories': [str(item).strip() for item in raw_categories if str(item).strip()], 'prep_minutes': duration_minutes(recipe.get('prepTime')), 'cook_minutes': duration_minutes(recipe.get('cookTime')), 'base_servings': int(servings_match.group()) if servings_match else 4,
             'ingredients': [parse_imported_ingredient(item) for item in ingredients],
             'steps': [{'instruction': item, 'tip': None} for item in steps], 'notes': '',
             'source': {'type': 'web', 'label': host, 'url': final_url, 'page': None},
         }
-        return draft, bool(title and ingredients and steps)
-    is_youtube = host.casefold() in {'youtu.be', 'youtube.com', 'www.youtube.com', 'm.youtube.com'}
-    if is_youtube:
+        return draft, bool(extracted_title and ingredients and steps)
+    source_type = social_source_type(host)
+    if source_type:
         video = next((node for value in decoded for node in nodes(value) if type_is(node, 'VideoObject')), {})
-        title = str(video.get('name') or parser.metadata.get('og:title') or 'YouTube recipe video').strip()
+        label = {'youtube': 'YouTube', 'instagram': 'Instagram', 'facebook': 'Facebook'}[source_type]
+        title = str(video.get('name') or parser.metadata.get('og:title') or parser.metadata.get('twitter:title') or f'{label} recipe — title needed').strip()
         description = str(video.get('description') or parser.metadata.get('og:description') or parser.metadata.get('description') or '').strip()
-        return empty_draft(title, description, final_url, 'youtube', host), False
+        return empty_draft(title, description, final_url, source_type, host), False
     raise ImportFailure('No structured recipe metadata was found. You can retry or add this recipe manually.')
 
 
@@ -169,3 +175,11 @@ async def extract_url(url: str) -> tuple[dict, bool, str]:
     html, final_url = await fetch_public_html(url)
     draft, complete = parse_page(html, final_url)
     return draft, complete, final_url
+
+
+def social_source_type(host: str) -> str | None:
+    normalized = host.casefold().removeprefix('www.').removeprefix('m.')
+    if normalized in {'youtu.be', 'youtube.com'}: return 'youtube'
+    if normalized in {'instagram.com', 'instagr.am'}: return 'instagram'
+    if normalized in {'facebook.com', 'fb.watch'}: return 'facebook'
+    return None

@@ -152,17 +152,21 @@ Match the **first approved light sage-and-cream mockup**, including the original
 
 ### 4.8 Recipe Inbox / Add Recipe
 
-- The Recipe Library **Add recipe** action opens a manual editor for title/description, ingredients with quantities and units, ordered instructions with inline tips, times, servings, cuisine/protein/categories/tags, status, source, notes, and an optional photo.
+- The Recipe Library **Add recipe** action offers the same three paths as the Inbox: manual entry, URL import, or one/more recipe photos. All imported paths lead to the shared review editor before saving.
+- The manual editor supports title/description, ingredients with quantities and units, ordered instructions with inline tips, times, servings, cuisine/protein/categories/tags, status, source, notes, and an optional photo.
+- Ingredient units use a searchable, create-capable selector backed by one canonical cooking-unit vocabulary. Blank and custom units remain valid; known abbreviations and plurals normalize consistently for imports and grocery aggregation.
 - Recipe Detail reuses the same editor with existing values prefilled. Deletion requires explicit confirmation and returns to the refreshed library.
 
-- Two primary actions: **From a Link** and **From a Photo**.
-- Link import supports recipe pages and attempts YouTube description/transcript extraction when available.
+- Three primary actions: **Enter Manually**, **Import from URL**, and **Import from Photos**.
+- Cuisine and category use searchable, create-capable single-value controls. Tags use a searchable, create-capable multi-value control. Existing household values are offered and equivalent capitalization, spacing, hyphen, and underscore variants are normalized to the established spelling.
+- Link import supports structured recipe pages plus publicly accessible metadata from YouTube, Instagram, and Facebook. Restricted or incomplete social content remains reviewable/manual rather than being inferred.
 - Photo import supports one or multiple cookbook pages, handwritten cards, and phone photos.
 - New submissions are saved immediately to a review queue even if extraction fails.
 - Show queue items with thumbnail/source and status: Pending, Processing, Ready for Review, Failed, Saved.
 - Failed URL imports offer both **Retry** and manual entry. Potential matches in the saved library display a duplicate warning before review.
 - Photo imports clearly state that originals are preserved. **Extract with AI** processes ordered multi-page images only on request; failures retain the originals and allow retry or manual transcription.
 - Review screen shows extracted title, ingredients, instructions, tags, and source details for correction before saving.
+- After a successful save, the completed Inbox record is retained for source/history purposes but immediately disappears from the active queue and its count. Failed or incomplete saves remain available for correction and retry.
 - Preserve original uploaded photos and optional cookbook title/page number.
 - Check for likely duplicates before final save.
 

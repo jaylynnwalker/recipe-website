@@ -20,18 +20,32 @@ export function Groceries({ list, onPreview, onApply, onToggle, onAdd, onEdit, o
   const [newCategory, setNewCategory] = useState('Other')
   const [newQuantity, setNewQuantity] = useState('')
   const [newUnit, setNewUnit] = useState('')
+  const [updateError, setUpdateError] = useState('')
+  const [updating, setUpdating] = useState(false)
   const groups = useMemo(() => {
     const byCategory = new Map<string, GroceryItemRecord[]>()
     list.items.forEach((item) => byCategory.set(item.category, [...(byCategory.get(item.category) ?? []), item]))
     return [...byCategory].sort(([left], [right]) => (categoryOrder.indexOf(left) < 0 ? 99 : categoryOrder.indexOf(left)) - (categoryOrder.indexOf(right) < 0 ? 99 : categoryOrder.indexOf(right)))
   }, [list.items])
   const remaining = list.items.filter((item) => !item.checked).length
-  const review = async () => setPreview(await onPreview())
+  const review = async () => {
+    setUpdating(true); setUpdateError('')
+    try { setPreview(await onPreview()) }
+    catch (cause) { setUpdateError(cause instanceof Error ? cause.message : 'Unable to review Meals on Deck changes. Your current grocery list is unchanged.') }
+    finally { setUpdating(false) }
+  }
+  const apply = async () => {
+    setUpdating(true); setUpdateError('')
+    try { await onApply(); setPreview(null) }
+    catch (cause) { setUpdateError(cause instanceof Error ? cause.message : 'Unable to update the grocery list. Your current grocery list is unchanged.') }
+    finally { setUpdating(false) }
+  }
   const toggleSection = (category: string) => setCollapsed((current) => current.includes(category) ? current.filter((value) => value !== category) : [...current, category])
 
-  return <div className="page"><header className="page-header"><div><p className="eyebrow">Shared household list</p><h1>Grocery List</h1><p>Current list · {remaining} items remaining</p></div><button className="secondary" onClick={() => void review()}>Review deck changes</button></header>
-    <div className="grocery-banner"><span>✓</span><p><strong>Your list is a saved snapshot.</strong> Meals on Deck can change without changing this list.</p><button onClick={() => void review()}>Update list</button></div>
-    {preview && <section className="grocery-review" aria-label="Grocery list update review"><div className="form-section-title"><div><p className="eyebrow">Review changes</p><h2>Ready to update?</h2></div><button className="remove" onClick={() => setPreview(null)}>Close</button></div><div className="review-columns"><ReviewGroup title="Add" items={preview.additions} /><ReviewGroup title="Update" items={preview.updates} /><ReviewGroup title="Remove" items={preview.removals} /></div>{preview.excludedStaples.length > 0 && <p><strong>Pantry staples excluded:</strong> {preview.excludedStaples.join(', ')}</p>}<p>{preview.unchangedCount} generated items will remain unchanged. Manual and checked items are preserved.</p><button className="primary" onClick={async () => { await onApply(); setPreview(null) }}>Apply update</button></section>}
+  return <div className="page"><header className="page-header"><div><p className="eyebrow">Shared household list</p><h1>Grocery List</h1><p>Current list · {remaining} items remaining</p></div><button className="secondary" disabled={updating} onClick={() => void review()}>{updating ? 'Checking…' : 'Review deck changes'}</button></header>
+    <div className="grocery-banner"><span>✓</span><p><strong>Your list is a saved snapshot.</strong> Meals on Deck can change without changing this list.</p><button disabled={updating} onClick={() => void review()}>{updating ? 'Checking…' : 'Update list'}</button></div>
+    {updateError && <p className="data-error" role="alert">{updateError}</p>}
+    {preview && <section className="grocery-review" aria-label="Grocery list update review"><div className="form-section-title"><div><p className="eyebrow">Review changes</p><h2>Ready to update?</h2></div><button className="remove" onClick={() => setPreview(null)}>Close</button></div><div className="review-columns"><ReviewGroup title="Add" items={preview.additions} /><ReviewGroup title="Update" items={preview.updates} /><ReviewGroup title="Remove" items={preview.removals} /></div>{preview.excludedStaples.length > 0 && <p><strong>Pantry staples excluded:</strong> {preview.excludedStaples.join(', ')}</p>}<p>{preview.unchangedCount} generated items will remain unchanged. Manual and checked items are preserved.</p><button className="primary" disabled={updating} onClick={() => void apply()}>{updating ? 'Updating…' : 'Apply update'}</button></section>}
     <section className="excluded-staples"><button className="excluded-summary" aria-expanded={showExcluded} onClick={() => setShowExcluded(!showExcluded)}><span><strong>Pantry staples excluded</strong><small>{list.excludedStaples.length} items kept off this list</small></span><span aria-hidden="true">{showExcluded ? '⌃' : '⌄'}</span></button>{showExcluded && <div className="excluded-list"><p>Staples are excluded by default. Add one back when you need to restock it.</p><div className="ingredient-chips">{list.excludedStaples.map((staple) => <span className="excluded-chip" key={staple.id}>{staple.name}<button onClick={() => void onAddBack(staple)}>+ Add</button></span>)}</div></div>}</section>
     {groups.length ? <div className="grocery-groups">{groups.map(([category, items]) => {
       const isCollapsed = collapsed.includes(category)

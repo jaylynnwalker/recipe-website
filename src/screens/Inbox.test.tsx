@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { InboxRecord } from '../api'
 import { Inbox } from './Inbox'
 
-const draft = { title: 'Imported Soup', description: '', status: 'Want to Try' as const, cuisine: '', protein: '', tags: [], categories: [], prep_minutes: 0, cook_minutes: 0, base_servings: 4, ingredients: [], steps: [], notes: '', source: { type: 'web', label: 'example.com', url: 'https://example.com/soup', page: null } }
+const draft = { title: 'Imported Soup', description: '', status: 'Want to Try' as const, cuisine: '', tags: [], categories: [], prep_minutes: 0, cook_minutes: 0, base_servings: 4, ingredients: [], steps: [], notes: '', source: { type: 'web', label: 'example.com', url: 'https://example.com/soup', page: null } }
 const item: InboxRecord = { id: 'inbox-1', sourceType: 'web', sourceUrl: 'https://example.com/soup', status: 'Ready for Review', title: 'Imported Soup', draft, errorMessage: null, duplicateRecipeId: 'recipe-1', savedRecipeId: null, assets: [], createdAt: '', updatedAt: '' }
 const props = { items: [item], onManual: vi.fn(), onImportUrl: vi.fn(), onImportPhotos: vi.fn(), onReview: vi.fn(), onRetry: vi.fn(), onAiExtract: vi.fn(), onDelete: vi.fn() }
 
@@ -42,8 +42,27 @@ describe('Inbox', () => {
     render(<Inbox {...props} items={[]} onImportPhotos={onImportPhotos} />)
     const photo = new File(['photo'], 'card.jpg', { type: 'image/jpeg' })
     await user.upload(screen.getByLabelText('Recipe photos'), photo)
-    const upload = screen.getByRole('button', { name: 'Save 1 photo' })
+    const upload = screen.getByRole('button', { name: 'Upload & extract with AI' })
     fireEvent.submit(upload.closest('form')!)
     expect(onImportPhotos).toHaveBeenCalledWith([photo])
+  })
+
+  it('shows extraction progress and prevents duplicate extraction requests', async () => {
+    const user = userEvent.setup()
+    let finish!: () => void
+    const onAiExtract = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
+    render(<Inbox {...props} onAiExtract={onAiExtract} />)
+    await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
+    expect(screen.getByRole('button', { name: 'Extracting…' })).toBeDisabled()
+    expect(onAiExtract).toHaveBeenCalledOnce()
+    finish()
+  })
+
+  it('keeps the item available and shows a friendly extraction failure', async () => {
+    const user = userEvent.setup()
+    render(<Inbox {...props} onAiExtract={vi.fn().mockRejectedValue(new Error('Extraction failed. Try again.'))} />)
+    await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Extraction failed. Try again.')
+    expect(screen.getByText('Imported Soup')).toBeInTheDocument()
   })
 })

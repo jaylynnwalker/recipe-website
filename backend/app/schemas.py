@@ -9,12 +9,24 @@ from .units import normalize_unit
 RecipeStatus = Literal['Our Rotation', 'Want to Try', 'Archived']
 
 
+class IngredientMeasurementWrite(BaseModel):
+    quantity: float = Field(ge=0)
+    unit: str | None = Field(default=None, max_length=60)
+
+    @field_validator('unit')
+    @classmethod
+    def standardize_unit(cls, value: str | None) -> str | None:
+        return normalize_unit(value)
+
+
 class IngredientWrite(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     quantity: float | None = Field(default=None, ge=0)
     unit: str | None = Field(default=None, max_length=60)
     note: str | None = Field(default=None, max_length=300)
     optional: bool = False
+    package_detail: str | None = Field(default=None, max_length=100)
+    alternative_measurements: list[IngredientMeasurementWrite] = Field(default_factory=list, max_length=10)
 
     @field_validator('unit')
     @classmethod
@@ -54,18 +66,21 @@ class RecipeWrite(BaseModel):
     description: str = Field(default='', max_length=5000)
     status: RecipeStatus
     cuisine: str = Field(default='', max_length=100)
-    protein: str = Field(default='', max_length=100)
+    proteins: list[str] = Field(default_factory=list, max_length=20)
     tags: list[str] = Field(default_factory=list, max_length=30)
     categories: list[str] = Field(default_factory=list, max_length=20)
     prep_minutes: int = Field(default=0, ge=0, le=10080)
     cook_minutes: int = Field(default=0, ge=0, le=10080)
+    additional_time_minutes: int = Field(default=0, ge=0, le=10080)
+    additional_time_label: str = Field(default='Additional', max_length=60)
     base_servings: int = Field(default=4, ge=1, le=100)
+    yield_unit: str = Field(default='servings', max_length=60)
     ingredients: list[IngredientWrite] = Field(default_factory=list, max_length=200)
     steps: list[StepWrite] = Field(default_factory=list, max_length=200)
     notes: str = Field(default='', max_length=20000)
     source: SourceWrite = Field(default_factory=SourceWrite)
 
-    @field_validator('tags', 'categories')
+    @field_validator('tags', 'categories', 'proteins')
     @classmethod
     def clean_names(cls, values: list[str]) -> list[str]:
         cleaned = []
@@ -79,6 +94,11 @@ class RecipeWrite(BaseModel):
     @classmethod
     def clean_cuisine(cls, value: str) -> str:
         return ' '.join(value.split())[:100]
+
+    @field_validator('yield_unit', 'additional_time_label')
+    @classmethod
+    def clean_short_label(cls, value: str) -> str:
+        return ' '.join(value.split())[:60]
 
 
 class RecipeRead(RecipeWrite):

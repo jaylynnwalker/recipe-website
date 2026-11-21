@@ -7,7 +7,7 @@ export interface ExcludedStapleRecord { id: string; name: string }
 export interface GroceryListRecord { id: string; updatedAt: string; items: GroceryItemRecord[]; excludedStaples: ExcludedStapleRecord[] }
 export interface GroceryPreview { additions: string[]; updates: string[]; removals: string[]; excludedStaples: string[]; unchangedCount: number }
 export type InboxStatus = 'Pending' | 'Processing' | 'Ready for Review' | 'Failed' | 'Saved'
-export interface ClassificationOptions { categories: string[]; cuisines: string[]; tags: string[] }
+export interface ClassificationOptions { categories: string[]; cuisines: string[]; proteins?: string[]; tags: string[] }
 export interface UnitOptions { options: string[]; aliases: Record<string, string> }
 export interface InboxAssetRecord { id: string; url: string; name: string; media_type: string; position: number }
 export interface InboxRecord { id: string; sourceType: 'web' | 'youtube' | 'instagram' | 'facebook' | 'photo'; sourceUrl: string | null; status: InboxStatus; title: string; draft: RecipeInput; errorMessage: string | null; duplicateRecipeId: string | null; savedRecipeId: string | null; assets: InboxAssetRecord[]; createdAt: string; updatedAt: string }
@@ -15,17 +15,17 @@ export interface AIUsage { month: string; spent_usd: number; reserved_usd: numbe
 export interface SavedRecipeMatch { recipe: Recipe; missingIngredients: string[]; matchedCount: number }
 export interface AIRecipeResults { savedMatches: SavedRecipeMatch[]; generatedIdeas: RecipeInput[] }
 export type RecipeInput = {
-  title: string; description: string; status: RecipeStatus; cuisine: string; protein: string; tags: string[]; categories: string[];
-  prep_minutes: number; cook_minutes: number; base_servings: number;
-  ingredients: { name: string; quantity: number | null; unit: string | null; note: string | null; optional: boolean }[];
+  title: string; description: string; status: RecipeStatus; cuisine: string; proteins?: string[]; tags: string[]; categories: string[];
+  prep_minutes: number; cook_minutes: number; additional_time_minutes?: number; additional_time_label?: string; base_servings: number; yield_unit?: string;
+  ingredients: { name: string; quantity: number | null; unit: string | null; note: string | null; optional: boolean; package_detail?: string | null; alternative_measurements?: { quantity: number; unit: string | null }[] }[];
   steps: { instruction: string; tip: string | null }[]; notes: string;
   source: { type: string | null; label: string; url: string | null; page: string | null }
 }
 
-type ApiIngredient = { name: string; quantity: number | null; unit?: string | null; note?: string | null }
+type ApiIngredient = { name: string; quantity: number | null; unit?: string | null; note?: string | null; package_detail?: string | null; alternative_measurements?: { quantity: number; unit?: string | null }[] }
 type ApiRecipe = {
-  id: string; title: string; description: string; status: RecipeStatus; cuisine: string; protein: string; tags: string[]; categories: string[];
-  prep_minutes: number; cook_minutes: number; base_servings: number; image: string | null; image_alt: string;
+  id: string; title: string; description: string; status: RecipeStatus; cuisine: string; proteins: string[]; tags: string[]; categories: string[];
+  prep_minutes: number; cook_minutes: number; additional_time_minutes: number; additional_time_label: string; base_servings: number; yield_unit: string; image: string | null; image_alt: string;
   ingredients: ApiIngredient[]; steps: { instruction: string; tip?: string | null }[]; notes: string;
   source: { label: string; url?: string | null }; cooking_history: string[]
 }
@@ -45,10 +45,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 const mapRecipe = (recipe: ApiRecipe): Recipe => ({
-  id: recipe.id, title: recipe.title, description: recipe.description, status: recipe.status, cuisine: recipe.cuisine, protein: recipe.protein, tags: recipe.tags, categories: recipe.categories,
-  prepMinutes: recipe.prep_minutes, cookMinutes: recipe.cook_minutes, baseServings: recipe.base_servings,
+  id: recipe.id, title: recipe.title, description: recipe.description, status: recipe.status, cuisine: recipe.cuisine, proteins: recipe.proteins, tags: recipe.tags, categories: recipe.categories,
+  prepMinutes: recipe.prep_minutes, cookMinutes: recipe.cook_minutes, additionalTimeMinutes: recipe.additional_time_minutes, additionalTimeLabel: recipe.additional_time_label, baseServings: recipe.base_servings, yieldUnit: recipe.yield_unit,
   image: recipe.image, imageAlt: recipe.image_alt,
-  ingredients: recipe.ingredients.map((item) => ({ quantity: item.quantity, unit: item.unit ?? undefined, name: item.name, note: item.note ?? undefined })),
+  ingredients: recipe.ingredients.map((item) => ({ quantity: item.quantity, unit: item.unit ?? undefined, name: item.name, note: item.note ?? undefined, packageDetail: item.package_detail ?? undefined, alternativeMeasurements: item.alternative_measurements?.map((measurement) => ({ quantity: measurement.quantity, unit: measurement.unit ?? undefined })) ?? [] })),
   steps: recipe.steps.map((step) => ({ instruction: step.instruction, tip: step.tip ?? undefined })), notes: recipe.notes,
   source: { label: recipe.source.label, url: recipe.source.url ?? undefined }, cookingHistory: recipe.cooking_history,
 })
@@ -88,7 +88,13 @@ export const api = {
   retryImport: (id: string) => request<ApiInboxRecord>(`/api/inbox/${id}/retry`, { method: 'POST' }).then(mapInbox),
   saveImport: (id: string, payload: RecipeInput) => request<ApiRecipe>(`/api/inbox/${id}/save`, { method: 'POST', body: JSON.stringify(payload) }).then(mapRecipe),
   deleteImport: (id: string) => request<void>(`/api/inbox/${id}`, { method: 'DELETE' }),
-  aiExtractImport: (id: string) => request<ApiInboxRecord>(`/api/inbox/${id}/ai-extract`, { method: 'POST' }).then(mapInbox),
+  aiExtractImport: async (id: string) => {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 120_000)
+    try { return mapInbox(await request<ApiInboxRecord>(`/api/inbox/${id}/ai-extract`, { method: 'POST', signal: controller.signal })) }
+    catch (cause) { if (controller.signal.aborted) throw new Error('Recipe extraction timed out. Please try again or enter the recipe manually.'); throw cause }
+    finally { window.clearTimeout(timeout) }
+  },
   aiUsage: () => request<AIUsage>('/api/ai/usage'),
   whatCanIMake: (ingredients: string[], includePantryStaples: boolean, generateAi: boolean): Promise<AIRecipeResults> => request<{ saved_matches: { recipe: ApiRecipe; missing_ingredients: string[]; matched_count: number }[]; generated_ideas: RecipeInput[] }>('/api/ai/what-can-i-make', { method: 'POST', body: JSON.stringify({ ingredients, include_pantry_staples: includePantryStaples, generate_ai: generateAi }) }).then((result) => ({ savedMatches: result.saved_matches.map((item) => ({ recipe: mapRecipe(item.recipe), missingIngredients: item.missing_ingredients, matchedCount: item.matched_count })), generatedIdeas: result.generated_ideas })),
   helpMePick: (mode: string, generateAi: boolean) => request<{ saved_recipes: ApiRecipe[]; generated_ideas: RecipeInput[] }>('/api/ai/help-me-pick', { method: 'POST', body: JSON.stringify({ mode, generate_ai: generateAi }) }).then((result) => ({ savedRecipes: result.saved_recipes.map(mapRecipe), generatedIdeas: result.generated_ideas })),

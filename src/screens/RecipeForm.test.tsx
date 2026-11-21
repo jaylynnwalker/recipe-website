@@ -1,11 +1,21 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { recipes } from '../data'
 import { RecipeForm } from './RecipeForm'
 
 describe('RecipeForm', () => {
   const classifications = { cuisines: ['Italian'], categories: ['Dinner'], tags: ['Quick'] }
   const units = { options: ['tsp', 'tbsp', 'cup', 'mL', 'whole', 'clove', 'slice', 'can'], aliases: { teaspoons: 'tsp', cups: 'cup', cloves: 'clove', ml: 'mL' } }
+
+  it('displays a searchable multi-select protein field', async () => {
+    const user = userEvent.setup()
+    render(<RecipeForm classifications={classifications} units={units} onSave={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByLabelText('Proteins')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Proteins'), 'Chicken')
+    await user.keyboard('{Enter}')
+    expect(screen.getByText('Chicken')).toBeInTheDocument()
+  })
 
   it('builds a recipe payload from the manual form', async () => {
     const user = userEvent.setup()
@@ -32,7 +42,10 @@ describe('RecipeForm', () => {
     await user.type(screen.getByLabelText('Instruction 1'), 'Simmer.')
     await user.type(screen.getByLabelText('Cuisine'), ' italian ')
     await user.tab()
-    await user.type(screen.getByLabelText('Category'), 'Weeknight Dinner')
+    await user.type(screen.getByLabelText('Categories'), 'Weeknight Dinner')
+    await user.keyboard('{Enter}')
+    await user.type(screen.getByLabelText('Categories'), 'Soup')
+    await user.click(screen.getByRole('button', { name: 'Add category' }))
     await user.type(screen.getByLabelText('Tags'), ' quick ')
     await user.keyboard('{Enter}')
     await user.type(screen.getByLabelText('Tags'), 'Vegetarian')
@@ -40,7 +53,7 @@ describe('RecipeForm', () => {
     await user.click(screen.getByRole('button', { name: 'Save recipe' }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       cuisine: 'Italian',
-      categories: ['Weeknight Dinner'],
+      categories: ['Weeknight Dinner', 'Soup'],
       tags: ['Quick', 'Vegetarian'],
     }), undefined)
   })
@@ -61,5 +74,59 @@ describe('RecipeForm', () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [
       expect.objectContaining({ unit: 'tsp' }), expect.objectContaining({ unit: 'threads' }),
     ] }), undefined)
+  })
+
+  it('preserves all existing categories when editing', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<RecipeForm recipe={{ ...recipes[0], categories: ['Soup', 'Main Dish'] }} classifications={{ ...classifications, categories: ['Soup', 'Main Dish'] }} units={units} onSave={onSave} onCancel={vi.fn()} />)
+    expect(screen.getByText('Soup')).toBeInTheDocument()
+    expect(screen.getByText('Main Dish')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ categories: ['Soup', 'Main Dish'] }), undefined)
+  })
+
+  it('adds alternative measurements and package details without changing the ingredient name', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<RecipeForm classifications={classifications} units={units} onSave={onSave} onCancel={vi.fn()} />)
+    await user.type(screen.getByLabelText('Recipe title'), 'Beans')
+    await user.type(screen.getByLabelText('Ingredient 1'), 'Black beans')
+    await user.type(screen.getByLabelText('Quantity 1'), '2')
+    await user.type(screen.getByLabelText('Unit 1'), 'can')
+    await user.type(screen.getByLabelText('Package detail 1'), '15 oz each')
+    await user.click(screen.getByRole('button', { name: '+ Add alternative measurement' }))
+    await user.type(screen.getByLabelText('Alternative quantity 1.1'), '30')
+    await user.type(screen.getByLabelText('Alternative unit 1.1'), 'oz')
+    await user.type(screen.getByLabelText('Instruction 1'), 'Drain.')
+    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [expect.objectContaining({ name: 'Black beans', package_detail: '15 oz each', alternative_measurements: [{ quantity: 30, unit: 'oz' }] })] }), undefined)
+  })
+
+  it('allows AI extraction during review and confirms before replacing edits', async () => {
+    const user = userEvent.setup()
+    const onExtract = vi.fn().mockResolvedValue(undefined)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<RecipeForm recipe={recipes[0]} mode="review" sourceType="photo" classifications={classifications} units={units} onSave={vi.fn()} onExtract={onExtract} onCancel={vi.fn()} />)
+    await user.clear(screen.getByLabelText('Recipe title'))
+    await user.type(screen.getByLabelText('Recipe title'), 'My edited title')
+    await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
+    expect(confirm).toHaveBeenCalledWith('Re-extracting will replace your unsaved edits. Continue?')
+    expect(onExtract).not.toHaveBeenCalled()
+    confirm.mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
+    expect(onExtract).toHaveBeenCalledOnce()
+  })
+
+  it('preserves review fields and displays feedback when extraction fails', async () => {
+    const user = userEvent.setup()
+    const onExtract = vi.fn().mockRejectedValue(new Error('failed'))
+    render(<RecipeForm recipe={recipes[0]} mode="review" sourceType="web" classifications={classifications} units={units} onSave={vi.fn()} onExtract={onExtract} extractionError="Extraction failed. Current details are unchanged." onCancel={vi.fn()} />)
+    await user.clear(screen.getByLabelText('Recipe title'))
+    await user.type(screen.getByLabelText('Recipe title'), 'Keep this title')
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
+    expect(screen.getByLabelText('Recipe title')).toHaveValue('Keep this title')
+    expect(screen.getByRole('alert')).toHaveTextContent('Current details are unchanged')
   })
 })

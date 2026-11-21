@@ -5,7 +5,11 @@ export interface Ingredient {
   unit?: string
   name: string
   note?: string
+  packageDetail?: string
+  alternativeMeasurements?: IngredientMeasurement[]
 }
+
+export interface IngredientMeasurement { quantity: number; unit?: string }
 
 export interface RecipeStep {
   instruction: string
@@ -18,12 +22,15 @@ export interface Recipe {
   description: string
   status: RecipeStatus
   cuisine: string
-  protein?: string
+  proteins?: string[]
   tags: string[]
   categories?: string[]
   prepMinutes: number
   cookMinutes: number
+  additionalTimeMinutes?: number
+  additionalTimeLabel?: string
   baseServings: number
+  yieldUnit?: string
   image: string | null
   imageAlt: string
   ingredients: Ingredient[]

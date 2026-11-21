@@ -35,9 +35,9 @@ Priority: **P0** = initial usable release; **P1** = next iteration; **P2** = opt
 
 | ID | Priority | Requirement |
 |---|---|---|
-| REC-01 | P0 | Store recipes with title, optional photo, description, cuisine(s), meal type, protein/category tags, prep/cook time, base servings, ingredients, ordered steps, and source metadata. |
+| REC-01 | P0 | Store recipes with title, optional photo, description, cuisine, one or more standardized protein sources, categories/tags, prep/cook time, base servings, ingredients, ordered steps, and source metadata. |
 | REC-02 | P0 | Search saved recipes by title, ingredients, cuisine, and tags without requiring AI. |
-| REC-03 | P0 | Browse and filter by cuisine, protein, time, rotation status, and Want to Try. |
+| REC-03 | P0 | Browse and filter by cuisine, protein source, category/tag, time, rotation status, and Want to Try. |
 | REC-04 | P0 | Support statuses **Want to Try**, **Our Rotation**, and **Archived**. |
 | REC-05 | P0 | Show compact recipe thumbnails and lists; prioritize scanability over large imagery. |
 | REC-06 | P0 | Allow editing ingredients, quantities, steps, tips, classifications, and photos directly. Maintain **one editable recipe**, not parallel original/custom versions. |

@@ -122,14 +122,14 @@ NULL_NUMBER = {'anyOf': [{'type': 'number'}, {'type': 'null'}]}
 RECIPE_SCHEMA = {
     'type': 'object', 'additionalProperties': False,
     'properties': {
-        'title': {'type': 'string'}, 'description': {'type': 'string'}, 'cuisine': {'type': 'string'}, 'protein': {'type': 'string'},
+        'title': {'type': 'string'}, 'description': {'type': 'string'}, 'cuisine': {'type': 'string'}, 'proteins': {'type': 'array', 'description': 'Explicit protein sources such as chicken, beef, pork, tofu, beans, lentils, eggs, fish, or shellfish; not nutritional protein claims.', 'items': {'type': 'string'}},
         'tags': {'type': 'array', 'items': {'type': 'string'}}, 'categories': {'type': 'array', 'items': {'type': 'string'}},
-        'prep_minutes': {'type': 'integer'}, 'cook_minutes': {'type': 'integer'}, 'base_servings': {'type': 'integer'},
-        'ingredients': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'name': {'type': 'string'}, 'quantity': NULL_NUMBER, 'unit': NULL_STRING, 'note': NULL_STRING, 'optional': {'type': 'boolean'}}, 'required': ['name', 'quantity', 'unit', 'note', 'optional']}},
+        'prep_minutes': {'type': 'integer'}, 'cook_minutes': {'type': 'integer'}, 'additional_time_minutes': {'type': 'integer'}, 'additional_time_label': {'type': 'string'}, 'base_servings': {'type': 'integer'}, 'yield_unit': {'type': 'string'},
+        'ingredients': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'name': {'type': 'string'}, 'quantity': NULL_NUMBER, 'unit': NULL_STRING, 'note': NULL_STRING, 'optional': {'type': 'boolean'}, 'package_detail': NULL_STRING, 'alternative_measurements': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'quantity': {'type': 'number'}, 'unit': NULL_STRING}, 'required': ['quantity', 'unit']}}}, 'required': ['name', 'quantity', 'unit', 'note', 'optional', 'package_detail', 'alternative_measurements']}},
         'steps': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'instruction': {'type': 'string'}, 'tip': NULL_STRING}, 'required': ['instruction', 'tip']}},
         'notes': {'type': 'string'},
     },
-    'required': ['title', 'description', 'cuisine', 'protein', 'tags', 'categories', 'prep_minutes', 'cook_minutes', 'base_servings', 'ingredients', 'steps', 'notes'],
+    'required': ['title', 'description', 'cuisine', 'proteins', 'tags', 'categories', 'prep_minutes', 'cook_minutes', 'additional_time_minutes', 'additional_time_label', 'base_servings', 'yield_unit', 'ingredients', 'steps', 'notes'],
 }
 
 

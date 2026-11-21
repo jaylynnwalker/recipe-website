@@ -3,14 +3,20 @@ import json
 
 from PIL import Image
 import pytest
+
 from pydantic import SecretStr
 
-from app.ai import AIUnavailable, BUDGET_MICROUSD, recipe_draft
+from app.ai import AIUnavailable, BUDGET_MICROUSD, RECIPE_SCHEMA, recipe_draft
 from app.config import get_settings
 from app.models import AIMonthlyBudget
 from app import ai as ai_service
 
 pytestmark = pytest.mark.anyio
+
+
+def test_ai_recipe_schema_requests_multi_select_protein_sources():
+    assert RECIPE_SCHEMA['properties']['proteins']['type'] == 'array'
+    assert 'proteins' in RECIPE_SCHEMA['required']
 
 
 def recipe_result(title='Pantry Pasta'):
@@ -96,6 +102,7 @@ async def test_multi_image_extraction_requires_review_and_preserves_sources(auth
     item = created.json()
     extracted_recipe = recipe_result('Grandma’s Soup')
     extracted_recipe['ingredients'] = [{'name': '1 1/2 cups carrots, diced', 'quantity': None, 'unit': None, 'note': None, 'optional': False}]
+    extracted_recipe['steps'] = [{'instruction': 'simmer with an Instant Pot for 10 minutes.', 'tip': 'keep this lower-case'}]
     fake = FakeResponses(extracted_recipe)
     monkeypatch.setattr(ai_service, 'get_responses_client', lambda _settings: fake)
     response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract")
@@ -103,7 +110,8 @@ async def test_multi_image_extraction_requires_review_and_preserves_sources(auth
     extracted = response.json()
     assert extracted['status'] == 'Ready for Review'
     assert extracted['draft']['title'] == 'Grandma’s Soup'
-    assert extracted['draft']['ingredients'][0] == {'name': 'carrots, diced', 'quantity': 1.5, 'unit': 'cup', 'note': None, 'optional': False}
+    assert {key: extracted['draft']['ingredients'][0][key] for key in ('name', 'quantity', 'unit', 'note', 'optional')} == {'name': 'Carrots, diced', 'quantity': 1.5, 'unit': 'cup', 'note': None, 'optional': False}
+    assert extracted['draft']['steps'][0] == {'instruction': 'Simmer with an Instant Pot for 10 minutes.', 'tip': 'keep this lower-case'}
     assert len(extracted['assets']) == 2
 
 

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import get_settings
 from ..database import get_db
 from ..dependencies import Workspace, current_workspace
-from ..models import Category, CookingEvent, Ingredient, Recipe, RecipeIngredient, RecipePhoto, RecipeStep, Tag
+from ..models import Category, CookingEvent, Ingredient, IngredientMeasurement, Protein, Recipe, RecipeIngredient, RecipePhoto, RecipeStep, Tag
 from ..schemas import PhotoRead, RecipeRead, RecipeWrite
 from ..serializers import recipe_to_dict
 from ..units import COMMON_UNITS, UNIT_ALIASES, normalize_unit
@@ -20,10 +20,11 @@ from ..units import COMMON_UNITS, UNIT_ALIASES, normalize_unit
 
 router = APIRouter(prefix='/recipes', tags=['recipes'])
 ALLOWED_IMAGES = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
+COMMON_PROTEINS = ['Chicken', 'Beef', 'Pork', 'Turkey', 'Lamb', 'Fish', 'Shellfish', 'Eggs', 'Tofu', 'Tempeh', 'Beans', 'Lentils', 'Other', 'None']
 
 
 def recipe_options():
-    return (selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient), selectinload(Recipe.steps), selectinload(Recipe.tags), selectinload(Recipe.categories), selectinload(Recipe.photos), selectinload(Recipe.cooking_events))
+    return (selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient), selectinload(Recipe.ingredients).selectinload(RecipeIngredient.alternative_measurements), selectinload(Recipe.steps), selectinload(Recipe.tags), selectinload(Recipe.categories), selectinload(Recipe.proteins), selectinload(Recipe.photos), selectinload(Recipe.cooking_events))
 
 
 def get_household_recipe(recipe_id: str, household_id: str, db: Session) -> Recipe:
@@ -63,10 +64,12 @@ def apply_recipe_payload(recipe: Recipe, payload: RecipeWrite, db: Session):
     recipe.description = payload.description
     recipe.status = payload.status
     recipe.cuisine = canonical_cuisine(db, recipe.household_id, payload.cuisine)
-    recipe.protein = payload.protein.strip()
     recipe.prep_minutes = payload.prep_minutes
     recipe.cook_minutes = payload.cook_minutes
+    recipe.additional_time_minutes = payload.additional_time_minutes
+    recipe.additional_time_label = payload.additional_time_label or 'Additional'
     recipe.base_servings = payload.base_servings
+    recipe.yield_unit = payload.yield_unit or 'servings'
     recipe.notes = payload.notes
     recipe.source_type = payload.source.type
     recipe.source_label = payload.source.label
@@ -74,6 +77,7 @@ def apply_recipe_payload(recipe: Recipe, payload: RecipeWrite, db: Session):
     recipe.source_page = payload.source.page
     recipe.tags = [get_or_create_named(db, Tag, name) for name in payload.tags]
     recipe.categories = [get_or_create_named(db, Category, name) for name in payload.categories]
+    recipe.proteins = [get_or_create_named(db, Protein, name) for name in payload.proteins]
     if recipe.ingredients:
         recipe.ingredients.clear()
         db.flush()
@@ -84,7 +88,7 @@ def apply_recipe_payload(recipe: Recipe, payload: RecipeWrite, db: Session):
             ingredient = Ingredient(display_name=' '.join(item.name.split()), normalized_name=normalized)
             db.add(ingredient)
             db.flush()
-        recipe.ingredients.append(RecipeIngredient(position=position, ingredient=ingredient, quantity=item.quantity, unit=item.unit, note=item.note, optional=item.optional))
+        recipe.ingredients.append(RecipeIngredient(position=position, ingredient=ingredient, quantity=item.quantity, unit=item.unit, note=item.note, optional=item.optional, package_detail=item.package_detail, alternative_measurements=[IngredientMeasurement(position=index, quantity=measurement.quantity, unit=measurement.unit) for index, measurement in enumerate(item.alternative_measurements)]))
     if recipe.steps:
         recipe.steps.clear()
         db.flush()
@@ -92,12 +96,16 @@ def apply_recipe_payload(recipe: Recipe, payload: RecipeWrite, db: Session):
 
 
 @router.get('', response_model=list[RecipeRead])
-async def list_recipes(q: str | None = Query(default=None, max_length=200), status_filter: str | None = Query(default=None, alias='status'), cuisine: str | None = Query(default=None, max_length=100), tag: str | None = Query(default=None, max_length=100), max_minutes: int | None = Query(default=None, ge=0), workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
+async def list_recipes(q: str | None = Query(default=None, max_length=200), status_filter: str | None = Query(default=None, alias='status'), cuisine: str | None = Query(default=None, max_length=100), category: str | None = Query(default=None, max_length=100), protein: str | None = Query(default=None, max_length=100), tag: str | None = Query(default=None, max_length=100), max_minutes: int | None = Query(default=None, ge=0), workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
     statement = select(Recipe).options(*recipe_options()).where(Recipe.household_id == workspace.household_id)
     if status_filter:
         statement = statement.where(Recipe.status == status_filter)
     if cuisine:
         statement = statement.where(Recipe.cuisine == cuisine)
+    if category:
+        statement = statement.join(Recipe.categories).where(Category.name == category)
+    if protein:
+        statement = statement.join(Recipe.proteins).where(Protein.name == protein)
     if tag:
         statement = statement.join(Recipe.tags).where(Tag.name == tag)
     if max_minutes is not None:
@@ -106,14 +114,16 @@ async def list_recipes(q: str | None = Query(default=None, max_length=200), stat
         term = f'%{q.strip()}%'
         ingredient_recipe_ids = select(RecipeIngredient.recipe_id).join(RecipeIngredient.ingredient).where(Ingredient.display_name.ilike(term))
         tag_recipe_ids = select(Recipe.id).join(Recipe.tags).where(Tag.name.ilike(term))
-        statement = statement.where(or_(Recipe.title.ilike(term), Recipe.cuisine.ilike(term), Recipe.id.in_(ingredient_recipe_ids), Recipe.id.in_(tag_recipe_ids)))
+        category_recipe_ids = select(Recipe.id).join(Recipe.categories).where(Category.name.ilike(term))
+        protein_recipe_ids = select(Recipe.id).join(Recipe.proteins).where(Protein.name.ilike(term))
+        statement = statement.where(or_(Recipe.title.ilike(term), Recipe.cuisine.ilike(term), Recipe.id.in_(ingredient_recipe_ids), Recipe.id.in_(tag_recipe_ids), Recipe.id.in_(category_recipe_ids), Recipe.id.in_(protein_recipe_ids)))
     recipes = db.scalars(statement.order_by(Recipe.updated_at.desc())).unique().all()
     return [recipe_to_dict(recipe) for recipe in recipes]
 
 
 @router.get('/classifications')
 async def list_classifications(workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
-    recipes = db.scalars(select(Recipe).options(selectinload(Recipe.tags), selectinload(Recipe.categories)).where(Recipe.household_id == workspace.household_id)).unique().all()
+    recipes = db.scalars(select(Recipe).options(selectinload(Recipe.tags), selectinload(Recipe.categories), selectinload(Recipe.proteins)).where(Recipe.household_id == workspace.household_id)).unique().all()
     def unique(values):
         result = {}
         for value in values:
@@ -125,6 +135,7 @@ async def list_classifications(workspace: Workspace = Depends(current_workspace)
         'categories': unique(category.name for recipe in recipes for category in recipe.categories),
         'cuisines': unique(recipe.cuisine for recipe in recipes),
         'tags': unique(tag.name for recipe in recipes for tag in recipe.tags),
+        'proteins': unique([*COMMON_PROTEINS, *(protein.name for recipe in recipes for protein in recipe.proteins)]),
     }
 
 

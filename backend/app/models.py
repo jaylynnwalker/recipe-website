@@ -24,6 +24,9 @@ recipe_tags = Table("recipe_tags", Base.metadata,
 recipe_categories = Table("recipe_categories", Base.metadata,
     Column("recipe_id", ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True),
     Column("category_id", ForeignKey("categories.id", ondelete="CASCADE"), primary_key=True))
+recipe_proteins = Table("recipe_proteins", Base.metadata,
+    Column("recipe_id", ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True),
+    Column("protein_id", ForeignKey("proteins.id", ondelete="CASCADE"), primary_key=True))
 
 
 class Household(Base):
@@ -73,7 +76,10 @@ class Recipe(Base):
     protein: Mapped[str] = mapped_column(String(100), default="")
     prep_minutes: Mapped[int] = mapped_column(Integer, default=0)
     cook_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    additional_time_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    additional_time_label: Mapped[str] = mapped_column(String(60), default="Additional")
     base_servings: Mapped[int] = mapped_column(Integer, default=4)
+    yield_unit: Mapped[str] = mapped_column(String(60), default="servings")
     notes: Mapped[str] = mapped_column(Text, default="")
     source_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     source_label: Mapped[str] = mapped_column(String(300), default="Household recipe")
@@ -85,6 +91,7 @@ class Recipe(Base):
     steps: Mapped[list[RecipeStep]] = relationship(back_populates="recipe", cascade="all, delete-orphan", order_by="RecipeStep.position")
     tags: Mapped[list[Tag]] = relationship(secondary=recipe_tags)
     categories: Mapped[list[Category]] = relationship(secondary=recipe_categories)
+    proteins: Mapped[list[Protein]] = relationship(secondary=recipe_proteins)
     photos: Mapped[list[RecipePhoto]] = relationship(back_populates="recipe", cascade="all, delete-orphan", order_by="RecipePhoto.position")
     cooking_events: Mapped[list[CookingEvent]] = relationship(back_populates="recipe", cascade="all, delete-orphan")
 
@@ -107,8 +114,20 @@ class RecipeIngredient(Base):
     unit: Mapped[str | None] = mapped_column(String(60), nullable=True)
     note: Mapped[str | None] = mapped_column(String(300), nullable=True)
     optional: Mapped[bool] = mapped_column(Boolean, default=False)
+    package_detail: Mapped[str | None] = mapped_column(String(100), nullable=True)
     recipe: Mapped[Recipe] = relationship(back_populates="ingredients")
     ingredient: Mapped[Ingredient] = relationship()
+    alternative_measurements: Mapped[list[IngredientMeasurement]] = relationship(cascade="all, delete-orphan", order_by="IngredientMeasurement.position")
+
+
+class IngredientMeasurement(Base):
+    __tablename__ = "ingredient_measurements"
+    __table_args__ = (UniqueConstraint("recipe_ingredient_id", "position", name="uq_ingredient_measurement_position"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    recipe_ingredient_id: Mapped[str] = mapped_column(ForeignKey("recipe_ingredients.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 4))
+    unit: Mapped[str | None] = mapped_column(String(60), nullable=True)
 
 
 class RecipeStep(Base):
@@ -130,6 +149,12 @@ class Tag(Base):
 
 class Category(Base):
     __tablename__ = "categories"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+
+
+class Protein(Base):
+    __tablename__ = "proteins"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(100), unique=True)
 

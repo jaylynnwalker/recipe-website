@@ -23,13 +23,17 @@ export function App() {
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null | undefined>(undefined)
   const [search, setSearch] = useState('')
   const [dataError, setDataError] = useState('')
+  const [dataNotice, setDataNotice] = useState('')
   const [deck, setDeck] = useState<DeckEntryRecord[]>([])
   const [groceryList, setGroceryList] = useState<GroceryListRecord>({ id: '', updatedAt: '', items: [], excludedStaples: [] })
   const [inbox, setInbox] = useState<InboxRecord[]>([])
   const [reviewingImport, setReviewingImport] = useState<InboxRecord | null>(null)
+  const [extractingImportId, setExtractingImportId] = useState<string | null>(null)
+  const [importExtractionMessage, setImportExtractionMessage] = useState('')
+  const [importExtractionError, setImportExtractionError] = useState('')
   const [reviewingIdea, setReviewingIdea] = useState<RecipeInput | null>(null)
   const [aiUsage, setAiUsage] = useState<AIUsage | null>(null)
-  const [classifications, setClassifications] = useState<ClassificationOptions>({ categories: [], cuisines: [], tags: [] })
+  const [classifications, setClassifications] = useState<ClassificationOptions>({ categories: [], cuisines: [], proteins: [], tags: [] })
   const [units, setUnits] = useState<UnitOptions>({ options: [], aliases: {} })
   const [creatingRecipe, setCreatingRecipe] = useState(false)
 
@@ -39,7 +43,17 @@ export function App() {
   }
   useEffect(() => { loadHouseholdData().catch((cause) => setDataError(cause instanceof Error ? cause.message : 'Unable to open Our Kitchen')).finally(() => setLoading(false)) }, [])
 
-  const navigate = (next: Page) => { setPage(next); setSelectedRecipe(null); if (next === 'settings') void api.aiUsage().then(setAiUsage).catch(() => undefined); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const navigate = (next: Page) => {
+    setPage(next)
+    setSelectedRecipe(null)
+    setEditingRecipe(undefined)
+    setCreatingRecipe(false)
+    setReviewingImport(null)
+    setReviewingIdea(null)
+    setDataNotice('')
+    if (next === 'settings') void api.aiUsage().then(setAiUsage).catch(() => undefined)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
   const openRecipe = async (recipe: Recipe) => {
     try { setSelectedRecipe(await api.recipe(recipe.id)); setPage('recipes'); window.scrollTo(0, 0) }
     catch (cause) { setDataError(cause instanceof Error ? cause.message : 'Unable to open recipe') }
@@ -112,17 +126,28 @@ export function App() {
     setRecipes(await api.recipes()); setClassifications(await api.classifications()); setUnits(await api.units()); setReviewingIdea(null); setSelectedRecipe(saved); setPage('recipes')
   }
   const addInboxItem = (item: InboxRecord) => setInbox((items) => [item, ...items.filter((current) => current.id !== item.id)])
+  const extractInboxItem = async (item: InboxRecord) => {
+    if (extractingImportId) return
+    setExtractingImportId(item.id); setImportExtractionMessage(item.sourceType === 'photo' ? 'Extracting recipe from photo…' : 'Extracting recipe from source…'); setImportExtractionError('')
+    try {
+      const updated = await api.aiExtractImport(item.id)
+      addInboxItem(updated); setReviewingImport(updated); setAiUsage(await api.aiUsage()); setImportExtractionMessage('Extraction complete. Review and correct the recipe before saving.')
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'AI extraction failed. Please try again.'
+      setImportExtractionMessage(''); setImportExtractionError(`${message} Your original source and current recipe details are unchanged.`)
+      throw cause
+    } finally { setExtractingImportId(null) }
+  }
   const importFromRecipesUrl = async (url: string) => { const item = await api.importUrl(url); addInboxItem(item); setCreatingRecipe(false); setReviewingImport(item) }
   const importFromRecipesPhotos = async (files: File[]) => {
-    const item = await api.importPhotos(files); addInboxItem(item); setCreatingRecipe(false)
-    try { const extracted = await api.aiExtractImport(item.id); addInboxItem(extracted); setReviewingImport(extracted); setAiUsage(await api.aiUsage()) }
-    catch (cause) { const latest = (await api.inbox()).find((current) => current.id === item.id) ?? item; setInbox(await api.inbox()); setReviewingImport(latest); setDataError(cause instanceof Error ? `${cause.message} The photos are saved and can be transcribed manually.` : 'AI extraction failed. The photos are saved for manual review.') }
+    const item = await api.importPhotos(files); addInboxItem(item); setCreatingRecipe(false); setReviewingImport(item)
+    try { await extractInboxItem(item) } catch { /* feedback remains in review */ }
   }
 
   if (loading) return <div className="app-loading"><p>Opening Our Kitchen…</p></div>
 
   let content
-  if (reviewingImport && importedRecipe) content = <RecipeForm key={reviewingImport.id} recipe={importedRecipe} classifications={classifications} units={units} mode="review" sourceType={reviewingImport.sourceType} onSave={saveImportedRecipe} onCancel={() => setReviewingImport(null)} />
+  if (reviewingImport && importedRecipe) content = <RecipeForm key={`${reviewingImport.id}-${reviewingImport.updatedAt}`} recipe={importedRecipe} classifications={classifications} units={units} mode="review" sourceType={reviewingImport.sourceType} onSave={saveImportedRecipe} onExtract={async () => extractInboxItem(reviewingImport)} extracting={extractingImportId === reviewingImport.id} extractionMessage={importExtractionMessage} extractionError={importExtractionError} onCancel={() => setReviewingImport(null)} />
   else if (reviewingIdea) content = <RecipeForm recipe={draftToRecipe(reviewingIdea, 'generated-idea')} classifications={classifications} units={units} mode="review" sourceType="ai" onSave={saveGeneratedRecipe} onCancel={() => setReviewingIdea(null)} />
   else if (editingRecipe !== undefined) content = <RecipeForm recipe={editingRecipe} classifications={classifications} units={units} onSave={saveRecipe} onDelete={editingRecipe ? deleteRecipe : undefined} onCancel={() => setEditingRecipe(undefined)} />
   else if (creatingRecipe) content = <RecipeCreation onBack={() => setCreatingRecipe(false)} onManual={() => { setCreatingRecipe(false); setEditingRecipe(null) }} onImportUrl={importFromRecipesUrl} onImportPhotos={importFromRecipesPhotos} />
@@ -134,22 +159,22 @@ export function App() {
   else if (page === 'settings') content = <Settings staples={pantryRecords.map((record) => record.name)} aiUsage={aiUsage} onChange={(names) => void updateStaples(names)} onBack={() => navigate('home')} />
   else if (page === 'make') content = <WhatCanIMake staples={pantryRecords.map((record) => record.name)} onOpenRecipe={(recipe) => void openRecipe(recipe)} onReviewIdea={setReviewingIdea} onBack={() => navigate('home')} />
   else if (page === 'pick') content = <HelpMePick onBack={() => navigate('home')} onOpenRecipe={(recipe) => void openRecipe(recipe)} onAddToDeck={(recipe) => void addToDeck(recipe)} onReviewIdea={setReviewingIdea} deckRecipeIds={deck.map((entry) => entry.recipe.id)} />
-  else content = <Inbox items={inbox} onManual={() => setEditingRecipe(null)} onImportUrl={async (url) => { const item = await api.importUrl(url); addInboxItem(item) }} onImportPhotos={async (files) => { const item = await api.importPhotos(files); addInboxItem(item) }} onReview={setReviewingImport} onAiExtract={async (item) => { const updated = await api.aiExtractImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)); setAiUsage(await api.aiUsage()) }} onRetry={async (item) => { const updated = await api.retryImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)) }} onDelete={async (item) => { if (!window.confirm(`Delete “${item.title}” from the Inbox?`)) return; await api.deleteImport(item.id); setInbox((items) => items.filter((current) => current.id !== item.id)) }} />
+  else content = <Inbox items={inbox} onManual={() => setEditingRecipe(null)} onImportUrl={async (url) => { const item = await api.importUrl(url); addInboxItem(item) }} onImportPhotos={importFromRecipesPhotos} onReview={(item) => { setImportExtractionMessage(''); setImportExtractionError(''); setReviewingImport(item) }} onAiExtract={extractInboxItem} onRetry={async (item) => { const updated = await api.retryImport(item.id); setInbox((items) => items.map((current) => current.id === updated.id ? updated : current)) }} onDelete={async (item) => { if (!window.confirm(`Delete “${item.title}” from the Inbox?`)) return; await api.deleteImport(item.id); setInbox((items) => items.filter((current) => current.id !== item.id)) }} />
 
-  return <Layout page={page} onNavigate={navigate}>{dataError && <p className="data-error" role="alert">{dataError}</p>}{content}</Layout>
+  return <Layout page={page} onNavigate={navigate}>{dataError && <p className="data-error" role="alert">{dataError}</p>}{dataNotice && <p className="data-success" role="status">{dataNotice}</p>}{content}</Layout>
 }
 
 function draftToRecipe(draft: RecipeInput, id: string): Recipe {
-  return { id, title: draft.title, description: draft.description, status: draft.status, cuisine: draft.cuisine, protein: draft.protein, tags: draft.tags, categories: draft.categories, prepMinutes: draft.prep_minutes, cookMinutes: draft.cook_minutes, baseServings: draft.base_servings, image: null, imageAlt: 'Generated recipe placeholder', ingredients: draft.ingredients.map(({ name, quantity, unit, note }) => ({ name, quantity, unit: unit ?? undefined, note: note ?? undefined })), steps: draft.steps.map(({ instruction, tip }) => ({ instruction, tip: tip ?? undefined })), notes: draft.notes, source: { label: draft.source.label, url: draft.source.url ?? undefined }, cookingHistory: [] }
+  return { id, title: draft.title, description: draft.description, status: draft.status, cuisine: draft.cuisine, proteins: draft.proteins ?? [], tags: draft.tags, categories: draft.categories, prepMinutes: draft.prep_minutes, cookMinutes: draft.cook_minutes, additionalTimeMinutes: draft.additional_time_minutes, additionalTimeLabel: draft.additional_time_label, baseServings: draft.base_servings, yieldUnit: draft.yield_unit, image: null, imageAlt: 'Generated recipe placeholder', ingredients: draft.ingredients.map(({ name, quantity, unit, note, package_detail, alternative_measurements }) => ({ name, quantity, unit: unit ?? undefined, note: note ?? undefined, packageDetail: package_detail ?? undefined, alternativeMeasurements: alternative_measurements?.map((measurement) => ({ quantity: measurement.quantity, unit: measurement.unit ?? undefined })) })), steps: draft.steps.map(({ instruction, tip }) => ({ instruction, tip: tip ?? undefined })), notes: draft.notes, source: { label: draft.source.label, url: draft.source.url ?? undefined }, cookingHistory: [] }
 }
 
 function inboxDraftToRecipe(item: InboxRecord): Recipe {
   const draft = item.draft
   return {
-    id: item.id, title: draft.title, description: draft.description, status: draft.status, cuisine: draft.cuisine, protein: draft.protein,
-    tags: draft.tags, categories: draft.categories, prepMinutes: draft.prep_minutes, cookMinutes: draft.cook_minutes, baseServings: draft.base_servings,
+    id: item.id, title: draft.title, description: draft.description, status: draft.status, cuisine: draft.cuisine, proteins: draft.proteins ?? [],
+    tags: draft.tags, categories: draft.categories, prepMinutes: draft.prep_minutes, cookMinutes: draft.cook_minutes, additionalTimeMinutes: draft.additional_time_minutes, additionalTimeLabel: draft.additional_time_label, baseServings: draft.base_servings, yieldUnit: draft.yield_unit,
     image: item.assets[0]?.url ?? null, imageAlt: item.assets.length ? 'Original uploaded recipe page' : 'Imported recipe placeholder',
-    ingredients: draft.ingredients.map((ingredient) => ({ name: ingredient.name, quantity: ingredient.quantity, unit: ingredient.unit ?? undefined, note: ingredient.note ?? undefined })),
+    ingredients: draft.ingredients.map((ingredient) => ({ name: ingredient.name, quantity: ingredient.quantity, unit: ingredient.unit ?? undefined, note: ingredient.note ?? undefined, packageDetail: ingredient.package_detail ?? undefined, alternativeMeasurements: ingredient.alternative_measurements?.map((measurement) => ({ quantity: measurement.quantity, unit: measurement.unit ?? undefined })) })),
     steps: draft.steps.map((step) => ({ instruction: step.instruction, tip: step.tip ?? undefined })), notes: draft.notes,
     source: { label: draft.source.label, url: draft.source.url ?? undefined }, cookingHistory: [],
   }

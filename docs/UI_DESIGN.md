@@ -56,6 +56,8 @@ Persistent five-item bottom navigation:
 4. **Groceries**
 5. **Inbox**
 
+Selecting a primary destination immediately closes transient recipe detail, edit, creation, and import-review views. The highlighted navigation item and displayed page stay synchronized while loaded household data remains in memory.
+
 Use a simple selected state in sage/olive. Do not introduce a separate tab for every feature. **Help Me Pick** is a prominent action on Home and can also be accessed when adding a meal.
 
 ### Desktop
@@ -100,22 +102,23 @@ Match the **first approved light sage-and-cream mockup**, including the original
 
 - Search at top.
 - Compact status filters: **All**, **Our Rotation**, **Want to Try**; **Archived** available through an additional filter/menu.
-- Additional filtering for cuisine, protein, ingredients, time, and tags, without crowding the default view.
+- Additional filtering for cuisine, protein sources, categories, ingredients, time, and tags, without crowding the default view.
 - Compact recipe rows on mobile: thumbnail, title, optional favorite indicator.
 - On desktop, use an appropriately spaced list/grid of recipe cards consistent with the same design system.
 - Missing-photo recipes use a tasteful illustrated or neutral category placeholder, not a broken or empty image.
 
 ### 4.4 Recipe Detail
 
-- Recipe photo/header, title, status/cuisine tags, serving count, and preparation/cooking time.
+- Recipe photo/header, title, status/cuisine tags, yield amount/unit, preparation/cooking time, optional resting/chilling time, and a calculated total.
 - **Three tabs: Ingredients / Instructions / Notes.** Tabs prevent repeatedly scrolling past ingredients to reach instructions.
-- Ingredients tab: checkable ingredients; servings stepper scales quantities.
+- Ingredients tab: checkable ingredients; servings stepper scales primary and alternative quantities while preserving package-size details.
 - Instructions tab: numbered, readable steps; technique tips shown **within the relevant step**.
 - Notes tab: optional personal notes and source attribution; does not replace inline cooking tips.
 - Persistent or easy-to-reach **Cook Mode** action.
 - Recipe can be edited directly; no separate version-history UI required.
 - A compact **Made this** action records a cooking-history event and updates the displayed count without leaving the detail screen.
 - Source link and video embed where available/appropriate.
+- Imported descriptions are concise one- or two-sentence summaries without source-site commentary; cuisine, multiple categories, and tags remain editable during review.
 
 ### 4.5 Cook Mode
 
@@ -153,19 +156,23 @@ Match the **first approved light sage-and-cream mockup**, including the original
 ### 4.8 Recipe Inbox / Add Recipe
 
 - The Recipe Library **Add recipe** action offers the same three paths as the Inbox: manual entry, URL import, or one/more recipe photos. All imported paths lead to the shared review editor before saving.
-- The manual editor supports title/description, ingredients with quantities and units, ordered instructions with inline tips, times, servings, cuisine/protein/categories/tags, status, source, notes, and an optional photo.
+- The manual editor supports title/description, searchable multi-select protein sources, ingredients with a primary measurement, optional alternative measurements, separate package-size details, ordered instructions with inline tips, times, servings, cuisine/categories/tags, status, source, notes, and an optional photo.
 - Ingredient units use a searchable, create-capable selector backed by one canonical cooking-unit vocabulary. Blank and custom units remain valid; known abbreviations and plurals normalize consistently for imports and grocery aggregation.
 - Recipe Detail reuses the same editor with existing values prefilled. Deletion requires explicit confirmation and returns to the refreshed library.
 
 - Three primary actions: **Enter Manually**, **Import from URL**, and **Import from Photos**.
-- Cuisine and category use searchable, create-capable single-value controls. Tags use a searchable, create-capable multi-value control. Existing household values are offered and equivalent capitalization, spacing, hyphen, and underscore variants are normalized to the established spelling.
+- Cuisine uses a searchable, create-capable single-value control. Categories and tags use searchable, create-capable multi-value controls. Existing household values are offered and equivalent capitalization, spacing, hyphen, and underscore variants are normalized to the established spelling.
 - Link import supports structured recipe pages plus publicly accessible metadata from YouTube, Instagram, and Facebook. Restricted or incomplete social content remains reviewable/manual rather than being inferred.
 - Photo import supports one or multiple cookbook pages, handwritten cards, and phone photos.
 - New submissions are saved immediately to a review queue even if extraction fails.
+- Photo submissions open the review editor immediately and automatically start the existing AI extraction flow; progress, success, and failure remain visible without navigating back to Inbox.
 - Show queue items with thumbnail/source and status: Pending, Processing, Ready for Review, Failed, Saved.
 - Failed URL imports offer both **Retry** and manual entry. Potential matches in the saved library display a duplicate warning before review.
 - Photo imports clearly state that originals are preserved. **Extract with AI** processes ordered multi-page images only on request; failures retain the originals and allow retry or manual transcription.
 - Review screen shows extracted title, ingredients, instructions, tags, and source details for correction before saving.
+- Review includes **Extract with AI** for photo and URL sources. Re-extraction confirms before replacing unsaved edits, retains the original source, and leaves current fields untouched when extraction fails.
+- AI extraction shows a persistent **Extracting…** state, prevents duplicate submissions, reports friendly failures, and opens successful results directly in the review editor.
+- Extracted ingredient names and instruction steps begin with a capital letter for readability; formatting preserves all remaining source capitalization rather than applying title case.
 - After a successful save, the completed Inbox record is retained for source/history purposes but immediately disappears from the active queue and its count. Failed or incomplete saves remain available for correction and retry.
 - Preserve original uploaded photos and optional cookbook title/page number.
 - Check for likely duplicates before final save.

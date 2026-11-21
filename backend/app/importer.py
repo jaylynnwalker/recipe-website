@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from .ingredient_parser import parse_imported_ingredient
+from .ingredient_parser import capitalize_first_letter, normalize_imported_draft, parse_imported_ingredient
 
 
 class ImportFailure(Exception):
@@ -140,7 +140,14 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
         if isinstance(raw_ingredients, str): raw_ingredients = [raw_ingredients]
         ingredients = [str(item).strip() for item in raw_ingredients if str(item).strip()]
         steps = instruction_text(recipe.get('recipeInstructions', []))
-        servings_match = re.search(r'\d+', str(recipe.get('recipeYield', '')))
+        raw_yield = recipe.get('recipeYield', '')
+        if isinstance(raw_yield, list): raw_yield = next((value for value in raw_yield if re.search(r'\d+', str(value))), raw_yield[0] if raw_yield else '')
+        servings_match = re.search(r'\d+', str(raw_yield))
+        yield_unit = re.sub(r'^.*?\d+(?:\.\d+)?\s*', '', str(raw_yield)).strip() or 'servings'
+        prep_minutes = duration_minutes(recipe.get('prepTime'))
+        cook_minutes = duration_minutes(recipe.get('cookTime'))
+        total_minutes = duration_minutes(recipe.get('totalTime'))
+        additional_minutes = max(0, total_minutes - prep_minutes - cook_minutes) if total_minutes else 0
         extracted_title = str(recipe.get('name') or parser.metadata.get('og:title') or parser.metadata.get('twitter:title') or '').strip()
         title = extracted_title or 'Recipe title needed'
         cuisine = recipe.get('recipeCuisine') or ''
@@ -150,13 +157,13 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
         raw_keywords = recipe.get('keywords') or []
         if isinstance(raw_keywords, str): raw_keywords = [item.strip() for item in raw_keywords.split(',')]
         draft = {
-            'title': title, 'description': str(recipe.get('description') or '').strip(), 'status': 'Want to Try', 'cuisine': str(cuisine).strip(), 'protein': '',
-            'tags': [str(item).strip() for item in raw_keywords if str(item).strip()], 'categories': [str(item).strip() for item in raw_categories if str(item).strip()], 'prep_minutes': duration_minutes(recipe.get('prepTime')), 'cook_minutes': duration_minutes(recipe.get('cookTime')), 'base_servings': int(servings_match.group()) if servings_match else 4,
+            'title': title, 'description': str(recipe.get('description') or '').strip(), 'status': 'Want to Try', 'cuisine': str(cuisine).strip(), 'proteins': [],
+            'tags': [str(item).strip() for item in raw_keywords if str(item).strip()], 'categories': [str(item).strip() for item in raw_categories if str(item).strip()], 'prep_minutes': prep_minutes, 'cook_minutes': cook_minutes, 'additional_time_minutes': additional_minutes, 'additional_time_label': 'Additional', 'base_servings': int(servings_match.group()) if servings_match else 4, 'yield_unit': yield_unit,
             'ingredients': [parse_imported_ingredient(item) for item in ingredients],
-            'steps': [{'instruction': item, 'tip': None} for item in steps], 'notes': '',
+            'steps': [{'instruction': capitalize_first_letter(item), 'tip': None} for item in steps], 'notes': '',
             'source': {'type': 'web', 'label': host, 'url': final_url, 'page': None},
         }
-        return draft, bool(extracted_title and ingredients and steps)
+        return normalize_imported_draft(draft), bool(extracted_title and ingredients and steps)
     source_type = social_source_type(host)
     if source_type:
         video = next((node for value in decoded for node in nodes(value) if type_is(node, 'VideoObject')), {})
@@ -168,7 +175,7 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
 
 
 def empty_draft(title: str, description: str, url: str | None, source_type: str, label: str) -> dict:
-    return {'title': title, 'description': description, 'status': 'Want to Try', 'cuisine': '', 'protein': '', 'tags': [], 'categories': [], 'prep_minutes': 0, 'cook_minutes': 0, 'base_servings': 4, 'ingredients': [], 'steps': [], 'notes': '', 'source': {'type': source_type, 'label': label, 'url': url, 'page': None}}
+    return {'title': title, 'description': description, 'status': 'Want to Try', 'cuisine': '', 'proteins': [], 'tags': [], 'categories': [], 'prep_minutes': 0, 'cook_minutes': 0, 'additional_time_minutes': 0, 'additional_time_label': 'Additional', 'base_servings': 4, 'yield_unit': 'servings', 'ingredients': [], 'steps': [], 'notes': '', 'source': {'type': source_type, 'label': label, 'url': url, 'page': None}}
 
 
 async def extract_url(url: str) -> tuple[dict, bool, str]:

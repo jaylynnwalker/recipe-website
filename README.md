@@ -142,7 +142,7 @@ After changes have been pushed to GitHub, update the running server from its exi
 ```bash
 cd /srv/docker/recipe-website
 git pull --ff-only
-docker compose up -d --build
+sudo docker compose up -d --build
 ```
 
 `git pull --ff-only` stops instead of creating an unexpected merge if the server checkout has diverged. `docker compose up -d --build` rebuilds changed images, recreates containers when needed, runs pending Alembic migrations during backend startup, and leaves the persistent database and media mounts in place.

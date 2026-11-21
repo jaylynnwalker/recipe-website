@@ -110,7 +110,7 @@ async def create_photo_import(files: list[UploadFile] = File(...), workspace: Wo
         except (UnidentifiedImageError, OSError): raise HTTPException(status_code=422, detail='One or more uploaded images are invalid')
         validated.append((upload, content))
     draft = empty_draft('Photo recipe', '', None, 'photo', 'Cookbook or handwritten recipe')
-    job = ImportJob(household_id=workspace.household_id, source_type='photo', status='Ready for Review', title='Photo recipe', draft_payload=json.dumps(draft), error_message='Original photos are preserved. Use AI extraction or transcribe them manually before saving.')
+    job = ImportJob(household_id=workspace.household_id, source_type='photo', status='Ready for Review', title='Photo recipe', draft_payload=json.dumps(draft), error_message='Original photos are preserved for automatic AI extraction, review, and retry.')
     db.add(job); db.flush()
     import_dir = settings.media_root / 'imports'; import_dir.mkdir(parents=True, exist_ok=True)
     written = []
@@ -158,7 +158,7 @@ async def ai_extract_import(job_id: str, workspace: Workspace = Depends(current_
         raise HTTPException(status_code=409, detail='Inbox item has no source to extract')
     job.status = 'Processing'; job.error_message = None; db.commit()
     try:
-        parsed = await run_structured(db, workspace.household_id, 'image_extraction' if images else 'import_fallback', 'You transcribe recipes faithfully. Never invent unreadable or missing ingredients, quantities, times, or instructions. Preserve uncertainty as null or empty.', prompt, RECIPE_SCHEMA, images)
+        parsed = await run_structured(db, workspace.household_id, 'image_extraction' if images else 'import_fallback', 'You transcribe recipes faithfully. Never invent unreadable or missing ingredients, quantities, times, or instructions. Preserve uncertainty as null or empty. Write a concise one- or two-sentence description with no quotation marks, website commentary, or promotional language. Suggest one cuisine and all applicable recipe categories from the recipe content. Deduplicate tags and categories case-insensitively. Preserve an explicit yield unit such as rotis, slices, or servings. Put resting, chilling, rising, or other time outside prep and cook in additional_time_minutes with a short label, and never double-count a stated total time.', prompt, RECIPE_SCHEMA, images)
         draft = recipe_draft(parsed, source)
         job = get_job(job_id, workspace.household_id, db); job.draft_payload = json.dumps(draft); job.title = draft['title'] or job.title; job.status = 'Ready for Review'; job.duplicate_recipe_id = find_duplicate(job, draft, db)
         if 'title needed' in draft['title'].casefold(): job.error_message = 'The source did not expose a recipe title. Add the correct title before saving.'

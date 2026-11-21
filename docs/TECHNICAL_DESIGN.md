@@ -64,11 +64,13 @@ Identifiers should be stable UUIDs or database-generated IDs; timestamps should 
 | `users` | Legacy compatibility only; application email/password accounts are no longer required. |
 | `households` | `id`, `name` (optional abstraction for shared data) |
 | `household_members` | `household_id`, `user_id`, `role` |
-| `recipes` | `id`, `household_id`, `title`, `description`, `status`, `base_servings`, `prep_minutes`, `cook_minutes`, `source_type`, `source_url`, `source_title`, `source_page`, `image_path`, timestamps |
+| `recipes` | `id`, `household_id`, `title`, `description`, `status`, `base_servings`, `yield_unit`, `prep_minutes`, `cook_minutes`, optional additional-time minutes/label, source metadata, image path, timestamps |
 | `recipe_ingredients` | `id`, `recipe_id`, `position`, `ingredient_id` nullable, `display_text`, `quantity_value`, `unit`, `preparation`, `optional` |
+| `ingredient_measurements` | `id`, `recipe_ingredient_id`, `position`, `quantity`, `unit`; optional alternatives only, while the recipe ingredient retains the primary measurement and package detail |
 | `ingredients` | `id`, `canonical_name`, `normalized_name`, optional aliases |
 | `recipe_steps` | `id`, `recipe_id`, `position`, `instruction_text`, `tip_text` nullable |
-| `recipe_tags` | `recipe_id`, `tag_id` (cuisine, protein, meal type, custom tags) |
+| `recipe_tags` | `recipe_id`, `tag_id` (meal type and custom tags) |
+| `recipe_proteins` / `proteins` | Multi-select standardized protein-source classifications; the legacy recipe protein column remains for data compatibility |
 | `tags` | `id`, `name`, `type` |
 | `import_jobs` | `id`, `household_id`, `source_type`, `source_url`, status, title, draft payload, error, duplicate/saved recipe references, timestamps |
 | `import_assets` | `id`, `import_job_id`, persistent storage name, original name, page order, media type, timestamp |
@@ -82,8 +84,10 @@ Identifiers should be stable UUIDs or database-generated IDs; timestamps should 
 **Important modeling choices:**
 
 - Keep original ingredient display text as well as parsed quantities to avoid losing nuance.
+- Store equivalent printed measurements separately from package sizing. Imports prefer weight, then volume, then count as the primary without inventing conversions; grocery aggregation uses only that primary measurement.
 - Ingredient names should be normalized for search/aggregation, with manual correction possible.
 - Recipe steps store an optional tip on the same step, not a detached notes collection.
+- Total time is derived from prep, cook, and additional time. Structured source totals contribute only an unaccounted remainder so they are not double-counted.
 - The grocery list is a **persisted snapshot**, not a live projection of the lineup. This enforces manual refresh.
 - Grocery item states should distinguish `needed`, `already_have`, and `purchased`; manual exclusions must not be confused with purchases.
 - Track `created_by` and `updated_by` where useful for shared editing/auditing.

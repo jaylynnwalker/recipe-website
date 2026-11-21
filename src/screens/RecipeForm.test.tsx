@@ -143,4 +143,14 @@ describe('RecipeForm', () => {
     expect(screen.getByLabelText('Recipe title')).toHaveValue('Keep this title')
     expect(screen.getByRole('alert')).toHaveTextContent('Current details are unchanged')
   })
+
+  it('allows a YouTube transcript to be pasted for extraction retry', async () => {
+    const user = userEvent.setup()
+    const onExtract = vi.fn().mockResolvedValue(undefined)
+    render(<RecipeForm recipe={recipes[0]} mode="review" sourceType="youtube" classifications={classifications} units={units} onSave={vi.fn()} onExtract={onExtract} onCancel={vi.fn()} />)
+    await user.type(screen.getByLabelText('Transcript text'), 'Mix 1 cup flour and bake.')
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
+    expect(onExtract).toHaveBeenCalledWith('Mix 1 cup flour and bake.')
+  })
 })

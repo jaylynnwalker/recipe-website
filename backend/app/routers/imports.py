@@ -16,10 +16,10 @@ from ..config import get_settings
 from ..database import get_db
 from ..dependencies import Workspace, current_workspace
 from ..ai import AIUnavailable, BudgetExceeded, RECIPE_SCHEMA, recipe_draft, run_structured
-from ..importer import ImportFailure, empty_draft, ensure_public_dns, extract_url, fetch_public_html, image_url_from_page, public_text_from_html, social_source_type, validate_external_url
+from ..importer import ImportFailure, YouTubeTranscriptFailure, empty_draft, ensure_public_dns, extract_url, fetch_public_html, fetch_youtube_transcript, image_url_from_page, public_text_from_html, social_source_type, validate_external_url
 from ..ingredient_parser import normalize_imported_draft
 from ..models import ImportAsset, ImportJob, Recipe, RecipePhoto
-from ..schemas import InboxUrlCreate, RecipeRead, RecipeWrite
+from ..schemas import AIExtractRequest, InboxUrlCreate, RecipeRead, RecipeWrite
 from ..serializers import recipe_to_dict
 from .recipes import ALLOWED_IMAGES, apply_recipe_payload, get_household_recipe
 
@@ -168,11 +168,11 @@ async def retry_import(job_id: str, workspace: Workspace = Depends(current_works
 
 
 @router.post('/{job_id}/ai-extract')
-async def ai_extract_import(job_id: str, workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
+async def ai_extract_import(job_id: str, payload: AIExtractRequest | None = None, workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
     job = get_job(job_id, workspace.household_id, db)
     if job.status == 'Saved': raise HTTPException(status_code=409, detail='Saved imports cannot be extracted again')
     source = {'type': job.source_type, 'label': urlparse(job.source_url).hostname if job.source_url else 'Cookbook or handwritten recipe', 'url': job.source_url, 'page': None}
-    images = []; prompt = 'Extract this recipe from the supplied images. Preserve page order.'
+    images = []; prompt = 'Extract this recipe from the supplied images. Preserve page order.'; extraction_note = None
     if job.assets and job.source_type == 'photo':
         settings = get_settings()
         images = [((settings.media_root / asset.storage_name).read_bytes(), asset.media_type) for asset in job.assets]
@@ -183,12 +183,27 @@ async def ai_extract_import(job_id: str, workspace: Workspace = Depends(current_
             await download_import_image(job, image_url_from_page(html, final_url), db)
             visible_text = public_text_from_html(html)[:60_000]
             current = json.loads(job.draft_payload or '{}')
+            if job.source_type == 'youtube':
+                manual_transcript = (payload.manual_transcript if payload else None) or ''
+                if manual_transcript.strip():
+                    transcript = manual_transcript.strip()
+                    transcript_label = 'pasted transcript'
+                else:
+                    try:
+                        transcript, transcript_label = await fetch_youtube_transcript(html)
+                    except YouTubeTranscriptFailure as error:
+                        job.error_message = str(error); job.status = 'Ready for Review'; db.commit()
+                        raise HTTPException(status_code=422, detail=str(error))
+                description = str(current.get('description') or '').strip()
+                prompt = f"Extract a recipe from this YouTube description and chronological transcript. Ignore greetings, promotions, engagement requests, and unrelated commentary. Never invent measurements or steps absent from the source. Existing metadata: {json.dumps(current)}\nDescription: {description}\nTranscript ({transcript_label}): {transcript[:80_000]}"
+                extraction_note = f'YouTube transcript retrieved and processed ({transcript_label}).'
             if job.source_type == 'facebook':
                 recipe_signals = len(re.findall(r'\b(?:cup|tsp|tbsp|ounce|ingredient|instructions?|mix|bake|cook|simmer|chop)\b', visible_text, re.IGNORECASE))
                 if len(visible_text) < 150 or recipe_signals < 2:
                     job.error_message = 'Facebook exposed only limited public metadata; the video, caption, and transcript could not be accessed. Paste recipe text or upload screenshots for extraction.'; job.status = 'Ready for Review'; db.commit()
                     raise HTTPException(status_code=422, detail=job.error_message)
-            prompt = f"Extract a recipe from this accessible page text or video description. If information is absent, return empty strings, null quantities, or empty lists. Existing metadata: {json.dumps(current)}\nPage text: {visible_text}"
+            if job.source_type != 'youtube':
+                prompt = f"Extract a recipe from this accessible page text or video description. If information is absent, return empty strings, null quantities, or empty lists. Existing metadata: {json.dumps(current)}\nPage text: {visible_text}"
         except ImportFailure:
             if job.source_type == 'facebook':
                 job.error_message = 'Facebook did not expose accessible recipe text, a caption, or a transcript. Paste recipe text or upload screenshots for extraction.'
@@ -204,7 +219,10 @@ async def ai_extract_import(job_id: str, workspace: Workspace = Depends(current_
         parsed = await run_structured(db, workspace.household_id, 'image_extraction' if images else 'import_fallback', 'You transcribe recipes faithfully. Never invent unreadable or missing ingredients, quantities, times, or instructions. Preserve uncertainty as null or empty. Write a concise one- or two-sentence description with no quotation marks, website commentary, or promotional language. Suggest one cuisine and all applicable recipe categories from the recipe content. Deduplicate tags and categories case-insensitively. Preserve an explicit yield unit such as rotis, slices, or servings. Put resting, chilling, rising, or other time outside prep and cook in additional_time_minutes with a short label, and never double-count a stated total time.', prompt, RECIPE_SCHEMA, images)
         draft = recipe_draft(parsed, source)
         job = get_job(job_id, workspace.household_id, db); job.draft_payload = json.dumps(draft); job.title = draft['title'] or job.title; job.status = 'Ready for Review'; job.duplicate_recipe_id = find_duplicate(job, draft, db)
-        if 'title needed' in draft['title'].casefold(): job.error_message = 'The source did not expose a recipe title. Add the correct title before saving.'
+        if job.source_type == 'youtube' and (not draft.get('ingredients') or not draft.get('steps')):
+            job.error_message = 'The transcript was retrieved but did not contain enough supported recipe information. Review the available details, paste a fuller transcript, or complete the recipe manually.'
+        elif 'title needed' in draft['title'].casefold(): job.error_message = 'The source did not expose a recipe title. Add the correct title before saving.'
+        elif extraction_note: job.error_message = extraction_note
         db.commit()
     except Exception as error:
         job = get_job(job_id, workspace.household_id, db); job.status = 'Failed'; job.error_message = str(error) if str(error) else 'AI extraction failed. Retry or enter the recipe manually.'; db.commit()

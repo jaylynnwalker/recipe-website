@@ -171,6 +171,7 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - Photo imports clearly state that originals are preserved. **Extract with AI** processes ordered multi-page images only on request; failures retain the originals and allow retry or manual transcription.
 - Review screen shows extracted title, ingredients, instructions, tags, and source details for correction before saving.
 - If an imported source has no yield, the review form leaves Yield amount blank and asks the reviewer to enter it before saving without discarding other extracted fields.
+- YouTube review retrieves public captions during **Extract with AI**, reports whether captions were unavailable, blocked, empty, or successfully processed, and provides an optional transcript text box for manual fallback and retry.
 - Review includes **Extract with AI** for photo and URL sources. Re-extraction confirms before replacing unsaved edits, retains the original source, and leaves current fields untouched when extraction fails.
 - URL imports show a locally stored extracted cover image when available. Reviewers can replace it with an upload or remove it without affecting the recipe text or source URL.
 - AI extraction shows a persistent **Extracting…** state, prevents duplicate submissions, reports friendly failures, and opens successful results directly in the review editor.

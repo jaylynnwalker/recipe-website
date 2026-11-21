@@ -139,6 +139,7 @@ async def test_facebook_ai_extraction_does_not_send_inaccessible_metadata_to_ai(
         nonlocal ai_called
         ai_called = True
         return recipe_payload
+    async def no_image(*args): return False
     monkeypatch.setattr(imports, 'extract_url', fake_extract)
     monkeypatch.setattr(imports, 'fetch_public_html', blocked_html)
     monkeypatch.setattr(imports, 'run_structured', fake_ai)
@@ -206,6 +207,89 @@ async def test_instagram_missing_servings_remains_reviewable_and_duplicate_does_
     assert invalid_save.status_code == 422
     still_reviewable = next(entry for entry in (await authenticated.get('/api/inbox')).json() if entry['id'] == item['id'])
     assert still_reviewable['draft']['ingredients'][0]['name'] == 'Potatoes'
+
+
+async def test_youtube_transcript_reaches_ai_and_populates_recipe(authenticated, recipe_payload, monkeypatch):
+    url = 'https://www.youtube.com/watch?v=oJ7AvoFIOn4'
+    partial = extracted_draft(recipe_payload, url)
+    partial.update(title='Recipe video', description='A cooking demonstration.', ingredients=[], steps=[], base_servings=None, yield_unit='')
+    partial['source']['type'] = 'youtube'
+    captured_prompt = ''
+    async def fake_extract(_url): return partial, False, url, None
+    async def public_html(_url): return '<html><body>YouTube player</body></html>', url
+    async def transcript(_html): return 'First chop 2 onions. Then fry them in 1 tablespoon oil. Simmer for ten minutes.', 'en automatic captions'
+    async def no_image(*args): return False
+    async def fake_ai(*args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = args[4]
+        return {**recipe_payload, 'title': 'Onion Supper', 'ingredients': [{'name': 'onions', 'quantity': 2, 'unit': 'whole', 'note': None, 'optional': False}], 'steps': [{'instruction': 'chop the onions.', 'tip': None}, {'instruction': 'fry and simmer.', 'tip': None}]}
+    monkeypatch.setattr(imports, 'extract_url', fake_extract)
+    monkeypatch.setattr(imports, 'fetch_public_html', public_html)
+    monkeypatch.setattr(imports, 'fetch_youtube_transcript', transcript)
+    monkeypatch.setattr(imports, 'download_import_image', no_image)
+    monkeypatch.setattr(imports, 'run_structured', fake_ai)
+
+    item = (await authenticated.post('/api/inbox/url', json={'url': url})).json()
+    response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract", json={})
+    assert response.status_code == 200
+    result = response.json()
+    assert 'First chop 2 onions' in captured_prompt
+    assert result['draft']['ingredients'][0]['name'] == 'Onions'
+    assert [step['instruction'] for step in result['draft']['steps']] == ['Chop the onions.', 'Fry and simmer.']
+    assert 'automatic captions' in result['error_message']
+
+
+async def test_youtube_unavailable_transcript_is_distinct_and_preserves_metadata(authenticated, recipe_payload, monkeypatch):
+    url = 'https://youtu.be/no-captions'
+    partial = extracted_draft(recipe_payload, url)
+    partial.update(title='Uncaptioned cooking video', ingredients=[], steps=[], base_servings=None)
+    partial['source']['type'] = 'youtube'
+    async def fake_extract(_url): return partial, False, url, None
+    async def public_html(_url): return '<html><body>YouTube player</body></html>', url
+    async def unavailable(_html): raise imports.YouTubeTranscriptFailure('No public YouTube transcript is available. Paste transcript text below or complete the recipe manually.', 'unavailable')
+    ai_called = False
+    async def fake_ai(*args, **kwargs):
+        nonlocal ai_called
+        ai_called = True
+        return recipe_payload
+    async def no_image(*args): return False
+    monkeypatch.setattr(imports, 'extract_url', fake_extract)
+    monkeypatch.setattr(imports, 'fetch_public_html', public_html)
+    monkeypatch.setattr(imports, 'fetch_youtube_transcript', unavailable)
+    monkeypatch.setattr(imports, 'download_import_image', no_image)
+    monkeypatch.setattr(imports, 'run_structured', fake_ai)
+
+    item = (await authenticated.post('/api/inbox/url', json={'url': url})).json()
+    response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract", json={})
+    assert response.status_code == 422
+    assert 'No public YouTube transcript is available' in response.json()['detail']
+    assert ai_called is False
+    active = next(entry for entry in (await authenticated.get('/api/inbox')).json() if entry['id'] == item['id'])
+    assert active['status'] == 'Ready for Review' and active['title'] == 'Uncaptioned cooking video'
+
+
+async def test_pasted_youtube_transcript_bypasses_unavailable_caption_fetch(authenticated, recipe_payload, monkeypatch):
+    url = 'https://www.youtube.com/watch?v=manual'
+    partial = extracted_draft(recipe_payload, url); partial.update(ingredients=[], steps=[]); partial['source']['type'] = 'youtube'
+    async def fake_extract(_url): return partial, False, url, None
+    async def public_html(_url): return '<html></html>', url
+    async def should_not_fetch(_html): raise AssertionError('caption fetch should be bypassed')
+    async def no_image(*args): return False
+    captured = ''
+    async def fake_ai(*args, **kwargs):
+        nonlocal captured
+        captured = args[4]
+        return recipe_payload
+    monkeypatch.setattr(imports, 'extract_url', fake_extract)
+    monkeypatch.setattr(imports, 'fetch_public_html', public_html)
+    monkeypatch.setattr(imports, 'fetch_youtube_transcript', should_not_fetch)
+    monkeypatch.setattr(imports, 'download_import_image', no_image)
+    monkeypatch.setattr(imports, 'run_structured', fake_ai)
+    item = (await authenticated.post('/api/inbox/url', json={'url': url})).json()
+    response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract", json={'manual_transcript': 'Mix 1 cup flour, then bake it.'})
+    assert response.status_code == 200
+    assert 'Mix 1 cup flour' in captured
+    assert 'pasted transcript' in response.json()['error_message']
 
 
 async def test_inaccessible_social_import_reports_failure_without_losing_source(authenticated, monkeypatch):

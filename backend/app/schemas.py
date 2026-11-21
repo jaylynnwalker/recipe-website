@@ -155,6 +155,10 @@ class InboxUrlCreate(BaseModel):
     url: str = Field(min_length=8, max_length=2048)
 
 
+class AIExtractRequest(BaseModel):
+    manual_transcript: str | None = Field(default=None, max_length=100_000)
+
+
 class IngredientIdeaRequest(BaseModel):
     ingredients: list[str] = Field(default_factory=list, max_length=50)
     include_pantry_staples: bool = True

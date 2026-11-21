@@ -19,7 +19,7 @@ export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'ed
   mode?: 'add' | 'edit' | 'review'
   sourceType?: string
   onSave: (payload: RecipeInput, photo?: File) => Promise<void>
-  onExtract?: () => Promise<void>
+  onExtract?: (manualTranscript?: string) => Promise<void>
   onRemoveImage?: () => Promise<void>
   extracting?: boolean
   extractionMessage?: string
@@ -49,6 +49,7 @@ export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'ed
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [manualTranscript, setManualTranscript] = useState('')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -82,11 +83,12 @@ export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'ed
 
   return <div className="page recipe-form-page">
     <button className="back-button" type="button" onClick={onCancel}>← Back</button>
-    <header className="page-header"><div><p className="eyebrow">{mode === 'review' ? 'Recipe Inbox' : 'Your collection'}</p><h1>{mode === 'review' ? 'Review imported recipe' : mode === 'edit' ? 'Edit recipe' : 'Add a recipe'}</h1><p>{mode === 'review' ? 'Correct anything that was unavailable or extracted incorrectly before saving.' : 'Keep the details that make this recipe yours.'}</p></div>{mode === 'review' && onExtract && <button className="secondary" type="button" disabled={extracting} onClick={async () => { if (dirty && !window.confirm('Re-extracting will replace your unsaved edits. Continue?')) return; try { await onExtract() } catch { /* parent feedback preserves this form */ } }}>{extracting ? 'Extracting…' : 'Extract with AI'}</button>}</header>
+    <header className="page-header"><div><p className="eyebrow">{mode === 'review' ? 'Recipe Inbox' : 'Your collection'}</p><h1>{mode === 'review' ? 'Review imported recipe' : mode === 'edit' ? 'Edit recipe' : 'Add a recipe'}</h1><p>{mode === 'review' ? 'Correct anything that was unavailable or extracted incorrectly before saving.' : 'Keep the details that make this recipe yours.'}</p></div>{mode === 'review' && onExtract && <button className="secondary" type="button" disabled={extracting} onClick={async () => { if (dirty && !window.confirm('Re-extracting will replace your unsaved edits. Continue?')) return; try { await onExtract(manualTranscript) } catch { /* parent feedback preserves this form */ } }}>{extracting ? sourceType === 'youtube' ? 'Retrieving transcript…' : 'Extracting…' : 'Extract with AI'}</button>}</header>
     <form className="recipe-form" onSubmit={submit} onChangeCapture={() => setDirty(true)}>
       {extractionMessage && <p className="data-success" role="status">{extractionMessage}</p>}
       {extractionError && <p className="data-error" role="alert">{extractionError}</p>}
       {error && <p className="data-error" role="alert">{error}</p>}
+      {mode === 'review' && sourceType === 'youtube' && <section><h2>YouTube transcript</h2><p>Public captions are retrieved automatically when available. If YouTube blocks them or no captions exist, paste transcript text here and retry extraction.</p><label className="wide">Transcript text<textarea rows={6} value={manualTranscript} placeholder="Paste transcript text (optional)" onChange={(event) => setManualTranscript(event.target.value)} /></label></section>}
       <section><h2>Recipe details</h2><div className="form-grid">
         <label className="wide">Recipe title<input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <label className="wide">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>

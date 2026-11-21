@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.importer import ImportFailure, clean_social_title, duration_minutes, image_url_from_page, parse_page, social_source_type, validate_external_url
+from app.importer import ImportFailure, clean_social_title, duration_minutes, image_url_from_page, parse_page, parse_youtube_transcript, select_youtube_caption_track, social_source_type, validate_external_url, youtube_caption_tracks
 from app.ingredient_parser import capitalize_first_letter, normalize_imported_draft, normalize_imported_ingredient, parse_imported_ingredient
 
 
@@ -61,10 +61,33 @@ def test_youtube_metadata_becomes_manual_review_draft():
     assert draft['ingredients'] == []
 
 
+def test_youtube_caption_tracks_support_manual_and_automatic_captions():
+    tracks = [
+        {'baseUrl': 'https://captions.example/auto', 'languageCode': 'en', 'kind': 'asr'},
+        {'baseUrl': 'https://captions.example/manual-es', 'languageCode': 'es'},
+        {'baseUrl': 'https://captions.example/manual-en', 'languageCode': 'en'},
+    ]
+    html = f'<script>var player={{"captions":{{"playerCaptionsTracklistRenderer":{{"captionTracks":{json.dumps(tracks)},"audioTracks":[]}}}}}};</script>'
+    parsed = youtube_caption_tracks(html)
+    assert len(parsed) == 3
+    assert select_youtube_caption_track(parsed)['baseUrl'].endswith('manual-en')
+
+
+def test_youtube_caption_parsing_preserves_chronological_text():
+    json3 = json.dumps({'events': [
+        {'tStartMs': 0, 'segs': [{'utf8': '[Music]\n'}]},
+        {'tStartMs': 1000, 'segs': [{'utf8': 'Chop two onions. '}, {'utf8': 'Heat the oil.'}]},
+    ]})
+    assert parse_youtube_transcript(json3) == '[Music] Chop two onions. Heat the oil.'
+    assert parse_youtube_transcript('<transcript><text start="0">Mix &amp; bake.</text><text start="2">Serve.</text></transcript>') == 'Mix & bake. Serve.'
+
+
 @pytest.mark.parametrize(('url', 'source_type'), [
     ('https://www.instagram.com/reel/example/', 'instagram'),
     ('https://www.facebook.com/watch/?v=123', 'facebook'),
     ('https://youtu.be/example', 'youtube'),
+    ('https://www.youtube.com/shorts/example', 'youtube'),
+    ('https://www.youtube-nocookie.com/embed/example', 'youtube'),
 ])
 def test_social_metadata_is_preserved_as_partial_review(url, source_type):
     html = '<meta property="og:title" content="Public recipe post"><meta property="og:description" content="Public caption only">'

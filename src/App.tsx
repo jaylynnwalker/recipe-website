@@ -126,11 +126,11 @@ export function App() {
     setRecipes(await api.recipes()); setClassifications(await api.classifications()); setUnits(await api.units()); setReviewingIdea(null); setSelectedRecipe(saved); setPage('recipes')
   }
   const addInboxItem = (item: InboxRecord) => setInbox((items) => [item, ...items.filter((current) => current.id !== item.id)])
-  const extractInboxItem = async (item: InboxRecord) => {
+  const extractInboxItem = async (item: InboxRecord, manualTranscript?: string) => {
     if (extractingImportId) return
     setExtractingImportId(item.id); setImportExtractionMessage(item.sourceType === 'photo' ? 'Extracting recipe from photo…' : 'Extracting recipe from source…'); setImportExtractionError('')
     try {
-      const updated = await api.aiExtractImport(item.id)
+      const updated = manualTranscript ? await api.aiExtractImport(item.id, manualTranscript) : await api.aiExtractImport(item.id)
       addInboxItem(updated); setReviewingImport(updated); setAiUsage(await api.aiUsage()); setImportExtractionMessage('Extraction complete. Review and correct the recipe before saving.')
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'AI extraction failed. Please try again.'
@@ -147,7 +147,7 @@ export function App() {
   if (loading) return <div className="app-loading"><p>Opening Our Kitchen…</p></div>
 
   let content
-  if (reviewingImport && importedRecipe) content = <RecipeForm key={`${reviewingImport.id}-${reviewingImport.updatedAt}`} recipe={importedRecipe} classifications={classifications} units={units} mode="review" sourceType={reviewingImport.sourceType} onSave={saveImportedRecipe} onExtract={async () => extractInboxItem(reviewingImport)} onRemoveImage={reviewingImport.assets.some((asset) => asset.role === 'cover') ? async () => { const updated = await api.removeImportImage(reviewingImport.id); addInboxItem(updated); setReviewingImport(updated) } : undefined} extracting={extractingImportId === reviewingImport.id} extractionMessage={importExtractionMessage} extractionError={importExtractionError} onCancel={() => setReviewingImport(null)} />
+  if (reviewingImport && importedRecipe) content = <RecipeForm key={`${reviewingImport.id}-${reviewingImport.updatedAt}`} recipe={importedRecipe} classifications={classifications} units={units} mode="review" sourceType={reviewingImport.sourceType} onSave={saveImportedRecipe} onExtract={async (manualTranscript) => extractInboxItem(reviewingImport, manualTranscript)} onRemoveImage={reviewingImport.assets.some((asset) => asset.role === 'cover') ? async () => { const updated = await api.removeImportImage(reviewingImport.id); addInboxItem(updated); setReviewingImport(updated) } : undefined} extracting={extractingImportId === reviewingImport.id} extractionMessage={importExtractionMessage} extractionError={importExtractionError} onCancel={() => setReviewingImport(null)} />
   else if (reviewingIdea) content = <RecipeForm recipe={draftToRecipe(reviewingIdea, 'generated-idea')} classifications={classifications} units={units} mode="review" sourceType="ai" onSave={saveGeneratedRecipe} onCancel={() => setReviewingIdea(null)} />
   else if (editingRecipe !== undefined) content = <RecipeForm recipe={editingRecipe} classifications={classifications} units={units} onSave={saveRecipe} onDelete={editingRecipe ? deleteRecipe : undefined} onRemoveImage={editingRecipe?.image ? async () => { await api.removeRecipePhoto(editingRecipe.id); const updated = await api.recipe(editingRecipe.id); setEditingRecipe(updated); setRecipes((items) => items.map((item) => item.id === updated.id ? updated : item)) } : undefined} onCancel={() => setEditingRecipe(undefined)} />
   else if (creatingRecipe) content = <RecipeCreation onBack={() => setCreatingRecipe(false)} onManual={() => { setCreatingRecipe(false); setEditingRecipe(null) }} onImportUrl={importFromRecipesUrl} onImportPhotos={importFromRecipesPhotos} />

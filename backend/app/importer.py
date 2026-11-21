@@ -7,6 +7,7 @@ import html as html_module
 import re
 import socket
 from urllib.parse import urljoin, urlparse
+from xml.etree import ElementTree
 
 import httpx
 
@@ -15,6 +16,14 @@ from .ingredient_parser import capitalize_first_letter, normalize_imported_draft
 
 class ImportFailure(Exception):
     pass
+
+
+class YouTubeTranscriptFailure(ImportFailure):
+    """A user-facing, non-fatal caption retrieval state."""
+
+    def __init__(self, message: str, reason: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 class MetadataParser(HTMLParser):
@@ -98,6 +107,82 @@ async def fetch_public_html(url: str) -> tuple[str, str]:
             finally:
                 await response.aclose()
     raise ImportFailure('The recipe website redirected too many times')
+
+
+def youtube_caption_tracks(html: str) -> list[dict]:
+    """Read caption track metadata embedded in YouTube's public player page."""
+    match = re.search(r'"captionTracks"\s*:\s*(\[.*?\])\s*,\s*"audioTracks"', html)
+    if not match:
+        match = re.search(r'"captionTracks"\s*:\s*(\[.*?\])', html)
+    if not match: return []
+    try:
+        tracks = json.loads(match.group(1))
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [track for track in tracks if isinstance(track, dict) and track.get('baseUrl')]
+
+
+def select_youtube_caption_track(tracks: list[dict]) -> dict | None:
+    if not tracks: return None
+    def score(track: dict) -> tuple[int, int]:
+        english = str(track.get('languageCode') or '').casefold().startswith('en')
+        manual = track.get('kind') != 'asr'
+        return (4 if english and manual else 3 if english else 2 if manual else 1, -tracks.index(track))
+    return max(tracks, key=score)
+
+
+def parse_youtube_transcript(content: str) -> str:
+    """Flatten YouTube JSON3 or legacy XML captions in chronological order."""
+    pieces: list[str] = []
+    try:
+        payload = json.loads(content)
+        for event in payload.get('events', []):
+            text = ''.join(str(segment.get('utf8') or '') for segment in event.get('segs', []))
+            if text.strip(): pieces.append(text)
+    except (json.JSONDecodeError, AttributeError):
+        try:
+            root = ElementTree.fromstring(content)
+            pieces = [''.join(node.itertext()) for node in root.findall('.//text')]
+        except ElementTree.ParseError:
+            return ''
+    return re.sub(r'\s+', ' ', html_module.unescape(' '.join(pieces))).strip()
+
+
+async def fetch_youtube_transcript(html: str) -> tuple[str, str]:
+    """Fetch a public manual or automatic caption track without downloading video."""
+    track = select_youtube_caption_track(youtube_caption_tracks(html))
+    if not track:
+        raise YouTubeTranscriptFailure('No public YouTube transcript is available. Paste transcript text below or complete the recipe manually.', 'unavailable')
+    caption_url = str(track['baseUrl'])
+    separator = '&' if '?' in caption_url else '?'
+    caption_url = f'{caption_url}{separator}fmt=json3'
+    current = validate_external_url(caption_url)
+    try:
+        async with httpx.AsyncClient(timeout=12, headers={'User-Agent': 'OurKitchenRecipeImporter/1.0', 'Accept': 'application/json,text/xml,application/xml,text/plain'}) as client:
+            for _ in range(4):
+                await ensure_public_dns(current)
+                response = await client.get(current, follow_redirects=False)
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get('location')
+                    if not location: raise YouTubeTranscriptFailure('YouTube returned an invalid transcript redirect.', 'failed')
+                    current = validate_external_url(urljoin(current, location)); continue
+                if response.status_code in {403, 429}:
+                    raise YouTubeTranscriptFailure('YouTube transcript retrieval was blocked. Retry later or paste transcript text below.', 'blocked')
+                if response.status_code >= 400:
+                    raise YouTubeTranscriptFailure(f'YouTube transcript retrieval failed with HTTP {response.status_code}. Retry or paste transcript text below.', 'failed')
+                if len(response.content) > 2_000_000:
+                    raise YouTubeTranscriptFailure('The YouTube transcript is too large to process safely.', 'failed')
+                transcript = parse_youtube_transcript(response.text)
+                if not transcript:
+                    raise YouTubeTranscriptFailure('The YouTube transcript was retrieved but contained no usable text. Paste transcript text below or complete the recipe manually.', 'insufficient')
+                language = str(track.get('languageCode') or 'unknown')
+                kind = 'automatic captions' if track.get('kind') == 'asr' else 'manual captions'
+                return transcript, f'{language} {kind}'
+    except YouTubeTranscriptFailure:
+        raise
+    except (httpx.HTTPError, ImportFailure) as error:
+        raise YouTubeTranscriptFailure('YouTube transcript retrieval failed. Retry later or paste transcript text below.', 'failed') from error
+    raise YouTubeTranscriptFailure('YouTube transcript retrieval redirected too many times.', 'failed')
 
 
 def duration_minutes(value) -> int:
@@ -243,7 +328,7 @@ async def extract_url(url: str) -> tuple[dict, bool, str, str | None]:
 
 def social_source_type(host: str) -> str | None:
     normalized = host.casefold().removeprefix('www.').removeprefix('m.')
-    if normalized in {'youtu.be', 'youtube.com'}: return 'youtube'
+    if normalized in {'youtu.be', 'youtube.com', 'youtube-nocookie.com'}: return 'youtube'
     if normalized in {'instagram.com', 'instagr.am'}: return 'instagram'
     if normalized in {'facebook.com', 'fb.watch'}: return 'facebook'
     return None

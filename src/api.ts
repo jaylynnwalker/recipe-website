@@ -95,10 +95,10 @@ export const api = {
   saveImport: (id: string, payload: RecipeInput) => request<ApiRecipe>(`/api/inbox/${id}/save`, { method: 'POST', body: JSON.stringify(payload) }).then(mapRecipe),
   deleteImport: (id: string) => request<void>(`/api/inbox/${id}`, { method: 'DELETE' }),
   removeImportImage: (id: string) => request<ApiInboxRecord>(`/api/inbox/${id}/image`, { method: 'DELETE' }).then(mapInbox),
-  aiExtractImport: async (id: string) => {
+  aiExtractImport: async (id: string, manualTranscript?: string) => {
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), 120_000)
-    try { return mapInbox(await request<ApiInboxRecord>(`/api/inbox/${id}/ai-extract`, { method: 'POST', signal: controller.signal })) }
+    try { return mapInbox(await request<ApiInboxRecord>(`/api/inbox/${id}/ai-extract`, { method: 'POST', signal: controller.signal, body: JSON.stringify({ manual_transcript: manualTranscript?.trim() || null }) })) }
     catch (cause) { if (controller.signal.aborted) throw new Error('Recipe extraction timed out. Please try again or enter the recipe manually.'); throw cause }
     finally { window.clearTimeout(timeout) }
   },

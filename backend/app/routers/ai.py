@@ -39,11 +39,11 @@ def all_recipes(db, household_id):
 async def what_can_i_make(payload: IngredientIdeaRequest, workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
     available = {normalize_name(value) for value in payload.ingredients if value.strip()}
     if payload.include_pantry_staples:
-        available.update(item.normalized_name for item in db.scalars(select(PantryStaple).where(PantryStaple.household_id == workspace.household_id)).all())
+        available.update(normalize_name(item.name) for item in db.scalars(select(PantryStaple).where(PantryStaple.household_id == workspace.household_id)).all())
     matches = []
     for recipe in all_recipes(db, workspace.household_id):
-        required = [item.ingredient.normalized_name for item in recipe.ingredients if not item.optional]
-        missing = [item.ingredient.display_name for item in recipe.ingredients if not item.optional and item.ingredient.normalized_name not in available]
+        required = [normalize_name(item.ingredient.display_name) for item in recipe.ingredients if not item.optional]
+        missing = [item.ingredient.display_name for item in recipe.ingredients if not item.optional and normalize_name(item.ingredient.display_name) not in available]
         matched = len(required) - len(missing)
         if matched: matches.append({'recipe': recipe_to_dict(recipe), 'missing_ingredients': missing, 'matched_count': matched})
     matches.sort(key=lambda item: (len(item['missing_ingredients']), -item['matched_count']))

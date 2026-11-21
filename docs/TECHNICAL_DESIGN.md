@@ -78,14 +78,15 @@ Identifiers should be stable UUIDs or database-generated IDs; timestamps should 
 | `cooking_events` | `id`, `recipe_id`, `user_id`, `cooked_at` |
 | `pantry_staples` | `id`, `household_id`, `ingredient_id` or normalized name |
 | `grocery_lists` | `id`, `household_id`, `updated_at` (one current snapshot per household) |
-| `grocery_items` | `id`, `grocery_list_id`, `label`, normalized name, quantity, unit, category, checked/manual flags, generated source key, position |
+| `grocery_items` | `id`, `grocery_list_id`, `label`, normalized name, primary quantity/unit, JSON quantity components for incompatible dimensions, category, checked/manual flags, generated source key, position |
+| `grocery_item_sources` | generated grocery item to contributing recipe associations |
 | `grocery_excluded_staples` | `id`, `grocery_list_id`, staple name and normalized name for the current snapshot |
 
 **Important modeling choices:**
 
 - Keep original ingredient display text as well as parsed quantities to avoid losing nuance.
 - Store equivalent printed measurements separately from package sizing. Imports prefer weight, then volume, then count as the primary without inventing conversions; grocery aggregation uses only that primary measurement.
-- Ingredient names should be normalized for search/aggregation, with manual correction possible.
+- Ingredient names are normalized conservatively for search/aggregation: punctuation, preparation words, common plurals, a small spelling map, and explicit safe aliases are canonicalized while meaningful qualifiers such as salted/unsalted remain distinct.
 - Recipe steps store an optional tip on the same step, not a detached notes collection.
 - Total time is derived from prep, cook, and additional time. Structured source totals contribute only an unaccounted remainder so they are not double-counted.
 - The grocery list is a **persisted snapshot**, not a live projection of the lineup. This enforces manual refresh.
@@ -107,10 +108,13 @@ Identifiers should be stable UUIDs or database-generated IDs; timestamps should 
 1. Collect ingredients for all unfinished deck entries.
 2. Scale quantities for each entry.
 3. Normalize ingredient names and compatible units (e.g., oz/lb where appropriate).
-4. Group only when ingredient identity and unit semantics are compatible.
+4. Create one shopping item per normalized ingredient. Sum compatible dimensions, but retain incompatible quantities as separate components on that item rather than treating fluid ounces as weight ounces or guessing density.
 5. Exclude fixed pantry staples by default; allow manual inclusion.
-6. Present ambiguous combinations separately (e.g., “1 onion” vs “1 cup chopped onion”) rather than guessing.
+6. Preserve counts for whole items, use practical US shopping units, and use only a small explicit ingredient-specific baking conversion table for volume-to-weight conversions.
 7. Save the resulting grocery list only after explicit confirmation.
+
+Generated grocery items retain associations to every contributing saved recipe. Recipe quantities remain unchanged; all conversion is snapshot-only.
+Grocery presentation is derived from structured quantity components and formatted name-first as `Ingredient — quantity unit`. Package details remain attached to count components so can/package totals can render both count and size without changing recipe ingredient data.
 
 ### Manual refresh semantics
 

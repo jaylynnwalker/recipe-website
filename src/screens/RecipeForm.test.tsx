@@ -25,7 +25,7 @@ describe('RecipeForm', () => {
     await user.type(screen.getByLabelText('Ingredient 1'), 'Carrots')
     await user.type(screen.getByLabelText('Quantity 1'), '2')
     await user.type(screen.getByLabelText('Instruction 1'), 'Simmer until tender.')
-    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Weeknight Soup',
       ingredients: [expect.objectContaining({ name: 'Carrots', quantity: 2 })],
@@ -39,11 +39,11 @@ describe('RecipeForm', () => {
     const incomplete = { ...recipes[0], baseServings: null }
     render(<RecipeForm recipe={incomplete} mode="review" sourceType="instagram" classifications={classifications} units={units} onSave={onSave} onCancel={vi.fn()} />)
     expect(screen.getByLabelText('Yield amount')).toHaveValue(null)
-    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Enter a yield amount between 1 and 100 before saving.')
     expect(onSave).not.toHaveBeenCalled()
     await user.type(screen.getByLabelText('Yield amount'), '3')
-    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ base_servings: 3 }), undefined)
   })
 
@@ -64,7 +64,7 @@ describe('RecipeForm', () => {
     await user.keyboard('{Enter}')
     await user.type(screen.getByLabelText('Tags'), 'Vegetarian')
     await user.click(screen.getByRole('button', { name: 'Add tag' }))
-    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       cuisine: 'Italian',
       categories: ['Weeknight Dinner', 'Soup'],
@@ -84,7 +84,7 @@ describe('RecipeForm', () => {
     await user.click(screen.getByRole('button', { name: '+ Add ingredient' }))
     await user.type(screen.getByLabelText('Ingredient 2'), 'Saffron')
     await user.type(screen.getByLabelText('Unit 2'), 'threads')
-    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [
       expect.objectContaining({ unit: 'tsp' }), expect.objectContaining({ unit: 'threads' }),
     ] }), undefined)
@@ -96,7 +96,7 @@ describe('RecipeForm', () => {
     render(<RecipeForm recipe={{ ...recipes[0], categories: ['Soup', 'Main Dish'] }} classifications={{ ...classifications, categories: ['Soup', 'Main Dish'] }} units={units} onSave={onSave} onCancel={vi.fn()} />)
     expect(screen.getByText('Soup')).toBeInTheDocument()
     expect(screen.getByText('Main Dish')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ categories: ['Soup', 'Main Dish'] }), undefined)
   })
 
@@ -113,7 +113,7 @@ describe('RecipeForm', () => {
     await user.type(screen.getByLabelText('Alternative quantity 1.1'), '30')
     await user.type(screen.getByLabelText('Alternative unit 1.1'), 'oz')
     await user.type(screen.getByLabelText('Instruction 1'), 'Drain.')
-    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ ingredients: [expect.objectContaining({ name: 'Black beans', package_detail: '15 oz each', alternative_measurements: [{ quantity: 30, unit: 'oz' }] })] }), undefined)
   })
 
@@ -169,7 +169,7 @@ describe('RecipeForm', () => {
     await user.click(addSections[1])
     await user.clear(screen.getByLabelText('Instruction section 1 heading')); await user.type(screen.getByLabelText('Instruction section 1 heading'), 'Assembly')
     await user.selectOptions(screen.getByLabelText('Instruction 1 section'), '0')
-    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       ingredient_sections: [{ heading: 'Filling' }, { heading: 'Crust' }],
       instruction_sections: [{ heading: 'Assembly' }],
@@ -222,5 +222,31 @@ describe('RecipeForm', () => {
     expect(screen.getByLabelText('Transcript text')).toHaveValue(transcript)
     await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
     expect(onExtract).toHaveBeenCalledTimes(2)
+  })
+
+  it('collapses ingredient groups and adds an ingredient inside its group', async () => {
+    const user = userEvent.setup()
+    const sectioned = { ...recipes[0], ingredientSections: ['Sauce'], ingredients: [{ quantity: 1, unit: 'cup', name: 'Tomatoes', sectionIndex: 0 }] }
+    render(<RecipeForm recipe={sectioned} classifications={classifications} units={units} onSave={vi.fn()} onCancel={vi.fn()} />)
+    const groupToggle = screen.getByRole('button', { name: /Sauce 1 ingredient/ })
+    await user.click(groupToggle)
+    expect(screen.queryByLabelText('Ingredient 1')).not.toBeInTheDocument()
+    await user.click(groupToggle)
+    await user.click(screen.getByRole('button', { name: '+ Add ingredient' }))
+    expect(screen.getByLabelText('Ingredient 2 section')).toHaveValue('0')
+    expect(screen.getByLabelText('Ingredient 2')).toHaveFocus()
+  })
+
+  it('inserts a step in place and protects dirty edits when leaving', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<RecipeForm classifications={classifications} units={units} onSave={vi.fn()} onCancel={onCancel} />)
+    await user.type(screen.getByLabelText('Recipe title'), 'Keep this')
+    await user.click(screen.getByRole('button', { name: '+ Insert step after' }))
+    expect(screen.getByLabelText('Instruction 2')).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(confirm).toHaveBeenCalledWith('Discard your unsaved recipe changes?')
+    expect(onCancel).not.toHaveBeenCalled()
   })
 })

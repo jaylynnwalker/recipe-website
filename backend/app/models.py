@@ -27,6 +27,9 @@ recipe_categories = Table("recipe_categories", Base.metadata,
 recipe_proteins = Table("recipe_proteins", Base.metadata,
     Column("recipe_id", ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True),
     Column("protein_id", ForeignKey("proteins.id", ondelete="CASCADE"), primary_key=True))
+grocery_item_sources = Table("grocery_item_sources", Base.metadata,
+    Column("grocery_item_id", ForeignKey("grocery_items.id", ondelete="CASCADE"), primary_key=True),
+    Column("recipe_id", ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True))
 
 
 class Household(Base):
@@ -245,9 +248,11 @@ class GroceryItem(Base):
     checked: Mapped[bool] = mapped_column(Boolean, default=False)
     is_manual: Mapped[bool] = mapped_column(Boolean, default=False)
     source_key: Mapped[str | None] = mapped_column(String(260), nullable=True)
+    quantity_details: Mapped[str] = mapped_column(Text, default="[]")
     position: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     grocery_list: Mapped[GroceryList] = relationship(back_populates="items")
+    source_recipes: Mapped[list[Recipe]] = relationship(secondary=grocery_item_sources)
 
 
 class GroceryExcludedStaple(Base):

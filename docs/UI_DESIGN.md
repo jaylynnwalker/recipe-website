@@ -149,6 +149,8 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - Shared state visible to both logged-in household members.
 - **Update Grocery List** action explicitly reviews and applies changes from Meals on Deck.
 - The review identifies generated additions, quantity updates, and removals before the user applies the new snapshot.
+- Duplicate recipe ingredients appear as one shopping item after conservative name/alias normalization. Compatible measures are shown in practical US shopping units; incompatible measures remain visible together without a guessed conversion. Generated items include a compact **From …** source-recipe line.
+- Grocery rows and update previews use **Ingredient name — Quantity Unit** consistently. Items without a quantity show only the ingredient name; packaged counts retain their size, such as **Cream of chicken — 2 × 10.5 oz cans**.
 - Preserve manual additions, checked items, and exclusions when reconciling changes.
 - Exclude the editable shared pantry-staples list by default, with ability to add individual staples back.
 - Do not use a date-specific “This Week” framing; use **Current List** or similar neutral label.
@@ -159,6 +161,10 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - The manual editor supports title/description, searchable multi-select protein sources, ingredients with a primary measurement, optional alternative measurements, separate package-size details, ordered instructions with inline tips, times, servings, cuisine/categories/tags, status, source, notes, and an optional photo.
 - Ingredient units use a searchable, create-capable selector backed by one canonical cooking-unit vocabulary. Blank and custom units remain valid; known abbreviations and plurals normalize consistently for imports and grocery aggregation.
 - Recipe Detail reuses the same editor with existing values prefilled. Deletion requires explicit confirmation and returns to the refreshed library.
+- On desktop, recipe metadata stays in a compact block above a two-column editor with ingredient groups on the left and numbered instructions on the right. Columns remain in the document flow and never scroll independently.
+- Ingredient groups are collapsible and show their ingredient count. Each group ends with **Add ingredient**, while **Add Group** follows the ingredient section. Ingredient names receive the widest field; quantity/unit stay compact; notes and alternative measurements are secondary expandable content.
+- Instructions use auto-expanding text areas, compact reorder/delete controls, an insert-after action on each step, and **Add Step** after the final step. Newly added ingredients and steps scroll into view and receive focus.
+- On mobile, ingredients stack above instructions with reduced container padding. Ingredient notes and step metadata stay collapsed unless populated or requested, and a safe-area-aware sticky action bar keeps Save available without covering form content. Dirty forms confirm before being discarded.
 
 - Three primary actions: **Enter Manually**, **Import from URL**, and **Import from Photos**.
 - Cuisine uses a searchable, create-capable single-value control. Categories and tags use searchable, create-capable multi-value controls. Existing household values are offered and equivalent capitalization, spacing, hyphen, and underscore variants are normalized to the established spelling.

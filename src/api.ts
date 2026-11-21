@@ -2,7 +2,7 @@ import type { Recipe, RecipeStatus } from './types'
 
 export interface PantryStapleRecord { id: string; name: string }
 export interface DeckEntryRecord { id: string; recipe: Recipe; servings: number; cooked: boolean; cookedAt?: string | null }
-export interface GroceryItemRecord { id: string; label: string; name: string; quantity: number | null; unit: string | null; category: string; checked: boolean; manual: boolean }
+export interface GroceryItemRecord { id: string; label: string; display_label: string; name: string; quantity: number | null; unit: string | null; components: { quantity: number | null; unit: string | null; package_detail?: string | null }[]; sources: { id: string; title: string }[]; category: string; checked: boolean; manual: boolean }
 export interface ExcludedStapleRecord { id: string; name: string }
 export interface GroceryListRecord { id: string; updatedAt: string; items: GroceryItemRecord[]; excludedStaples: ExcludedStapleRecord[] }
 export interface GroceryPreview { additions: string[]; updates: string[]; removals: string[]; excludedStaples: string[]; unchangedCount: number }

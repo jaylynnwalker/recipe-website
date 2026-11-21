@@ -35,10 +35,10 @@ async def test_grocery_snapshot_preserves_manual_and_checked_items(authenticated
     deck = (await authenticated.post('/api/deck', json={'recipe_id': recipe['id'], 'servings': 8})).json()
 
     preview = (await authenticated.post('/api/grocery-list/preview')).json()
-    assert any('4 lb Carrots' == item for item in preview['additions'])
+    assert any('Carrots — 4 lb' == item for item in preview['additions'])
     assert preview['excluded_staples'] == ['Salt']
     applied = (await authenticated.post('/api/grocery-list/apply')).json()
-    carrots = next(item for item in applied['items'] if item['name'] == 'carrots')
+    carrots = next(item for item in applied['items'] if item['name'] == 'carrot')
     assert carrots['quantity'] == 4
     assert applied['excluded_staples'][0]['name'] == 'Salt'
 
@@ -78,21 +78,55 @@ async def test_multiple_deck_recipes_consolidate_and_refresh_after_lineup_change
     manual = (await authenticated.post('/api/grocery-list/items', json={'label': 'Coffee', 'category': 'Pantry'})).json()
 
     applied = (await authenticated.post('/api/grocery-list/apply')).json()
-    carrots = next(item for item in applied['items'] if item['name'] == 'carrots')
-    herbs = next(item for item in applied['items'] if item['name'] == 'fresh herbs')
+    carrots = next(item for item in applied['items'] if item['name'] == 'carrot')
+    herbs = next(item for item in applied['items'] if item['name'] == 'fresh herb')
     assert carrots['quantity'] == 2 and carrots['unit'] == 'lb'
+    assert {source['title'] for source in carrots['sources']} == {'Carrot Stew', 'Roasted Carrots'}
     assert herbs['quantity'] is None and herbs['unit'] is None
     assert any(item['id'] == manual['id'] for item in applied['items'])
 
     await authenticated.delete(f"/api/deck/{first_deck['id']}")
     preview = (await authenticated.post('/api/grocery-list/preview')).json()
-    assert preview['updates'] == ['16 oz Carrots']
+    assert preview['updates'] == ['Carrots — 1 lb']
     assert preview['removals'] == ['Fresh herbs']
     refreshed = (await authenticated.post('/api/grocery-list/apply')).json()
-    remaining_carrots = next(item for item in refreshed['items'] if item['name'] == 'carrots')
-    assert remaining_carrots['quantity'] == 16 and remaining_carrots['unit'] == 'oz'
-    assert not any(item['name'] == 'fresh herbs' for item in refreshed['items'])
+    remaining_carrots = next(item for item in refreshed['items'] if item['name'] == 'carrot')
+    assert remaining_carrots['quantity'] == 1 and remaining_carrots['unit'] == 'lb'
+    assert not any(item['name'] == 'fresh herb' for item in refreshed['items'])
     assert any(item['id'] == manual['id'] for item in refreshed['items'])
+
+
+async def test_incompatible_measurements_share_one_item_without_density_guess(authenticated, recipe_payload):
+    first = {**recipe_payload, 'title': 'Measured Milk by Volume', 'ingredients': [
+        {'name': 'Milk', 'quantity': 1, 'unit': 'cup', 'note': None, 'optional': False},
+    ]}
+    second = {**recipe_payload, 'title': 'Measured Milk by Weight', 'ingredients': [
+        {'name': 'milk', 'quantity': 8, 'unit': 'oz', 'note': None, 'optional': False},
+    ]}
+    first_recipe = (await authenticated.post('/api/recipes', json=first)).json()
+    second_recipe = (await authenticated.post('/api/recipes', json=second)).json()
+    await authenticated.post('/api/deck', json={'recipe_id': first_recipe['id']})
+    await authenticated.post('/api/deck', json={'recipe_id': second_recipe['id']})
+    grocery = (await authenticated.post('/api/grocery-list/apply')).json()
+    milk = [item for item in grocery['items'] if item['name'] == 'milk']
+    assert len(milk) == 1
+    assert {(component['quantity'], component['unit']) for component in milk[0]['components']} == {(8.0, 'fl oz'), (8.0, 'oz')}
+    assert milk[0]['quantity'] is None and milk[0]['unit'] is None
+    assert {source['title'] for source in milk[0]['sources']} == {'Measured Milk by Volume', 'Measured Milk by Weight'}
+
+
+async def test_packaged_grocery_item_preserves_count_and_size(authenticated, recipe_payload):
+    payload = {**recipe_payload, 'title': 'Pantry Casserole', 'ingredients': [
+        {'name': 'Cream of chicken', 'quantity': 2, 'unit': 'can', 'package_detail': '10.5 oz each', 'note': None, 'optional': False},
+    ]}
+    recipe = (await authenticated.post('/api/recipes', json=payload)).json()
+    await authenticated.post('/api/deck', json={'recipe_id': recipe['id']})
+    preview = (await authenticated.post('/api/grocery-list/preview')).json()
+    assert preview['additions'] == ['Cream of chicken — 2 × 10.5 oz cans']
+    grocery = (await authenticated.post('/api/grocery-list/apply')).json()
+    item = grocery['items'][0]
+    assert item['display_label'] == 'Cream of chicken — 2 × 10.5 oz cans'
+    assert item['components'] == [{'quantity': 2.0, 'unit': 'can', 'package_detail': '10.5 oz each'}]
 
 
 async def test_grocery_generation_includes_every_ingredient_section_once(authenticated, recipe_payload):
@@ -105,6 +139,6 @@ async def test_grocery_generation_includes_every_ingredient_section_once(authent
     grocery = (await authenticated.post('/api/grocery-list/apply')).json()
     oil = next(item for item in grocery['items'] if item['name'] == 'olive oil')
     chicken = next(item for item in grocery['items'] if item['name'] == 'chicken')
-    assert (oil['quantity'], oil['unit']) == (4, 'tbsp')
+    assert (oil['quantity'], oil['unit']) == (2, 'fl oz')
     assert (chicken['quantity'], chicken['unit']) == (2, 'lb')
     assert len([item for item in grocery['items'] if item['name'] == 'olive oil']) == 1

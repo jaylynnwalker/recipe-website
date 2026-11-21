@@ -7,8 +7,8 @@ import { Groceries } from './Groceries'
 const list: GroceryListRecord = {
   id: 'list-1', updatedAt: '2026-11-14',
   items: [
-    { id: '1', label: '2 lemons', name: 'lemons', quantity: 2, unit: null, category: 'Produce', checked: false, manual: false },
-    { id: '2', label: 'Parmesan', name: 'parmesan', quantity: null, unit: null, category: 'Dairy & eggs', checked: true, manual: false },
+    { id: '1', label: 'Lemons', display_label: 'Lemons — 2', name: 'lemon', quantity: 2, unit: null, components: [{ quantity: 2, unit: null }], sources: [{ id: 'recipe-1', title: 'Lemon Chicken' }], category: 'Produce', checked: false, manual: false },
+    { id: '2', label: 'Parmesan', display_label: 'Parmesan', name: 'parmesan', quantity: null, unit: null, components: [], sources: [], category: 'Dairy & eggs', checked: true, manual: false },
   ],
   excludedStaples: [{ id: 'staple-1', name: 'Olive oil' }, { id: 'staple-2', name: 'Garlic' }],
 }
@@ -19,9 +19,9 @@ describe('Groceries', () => {
     const user = userEvent.setup()
     render(<Groceries {...props} />)
     const produce = screen.getByRole('button', { name: /Produce/ })
-    expect(screen.getByText('2 lemons')).toBeInTheDocument()
+    expect(screen.getByText('Lemons — 2')).toBeInTheDocument()
     await user.click(produce)
-    expect(screen.queryByText('2 lemons')).not.toBeInTheDocument()
+    expect(screen.queryByText('Lemons — 2')).not.toBeInTheDocument()
     expect(produce).toHaveAttribute('aria-expanded', 'false')
   })
 
@@ -38,8 +38,13 @@ describe('Groceries', () => {
     const user = userEvent.setup()
     const onToggle = vi.fn().mockResolvedValue(undefined)
     render(<Groceries {...props} onToggle={onToggle} />)
-    await user.click(screen.getByRole('checkbox', { name: /2 lemons/ }))
+    await user.click(screen.getByRole('checkbox', { name: /Lemons — 2/ }))
     expect(onToggle).toHaveBeenCalledWith(list.items[0])
+  })
+
+  it('shows the recipes contributing to a generated item', () => {
+    render(<Groceries {...props} />)
+    expect(screen.getByText('From Lemon Chicken')).toBeInTheDocument()
   })
 
   it('shows proposed changes before applying them', async () => {
@@ -56,7 +61,7 @@ describe('Groceries', () => {
     render(<Groceries {...props} onPreview={vi.fn().mockRejectedValue(new Error('Unable to generate preview'))} />)
     await user.click(screen.getByRole('button', { name: 'Review deck changes' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Unable to generate preview')
-    expect(screen.getByText('2 lemons')).toBeInTheDocument()
+    expect(screen.getByText('Lemons — 2')).toBeInTheDocument()
     expect(screen.getByText('Parmesan')).toBeInTheDocument()
   })
 
@@ -67,6 +72,6 @@ describe('Groceries', () => {
     await user.click(await screen.findByRole('button', { name: 'Apply update' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Update failed')
     expect(screen.getByRole('region', { name: 'Grocery list update review' })).toBeInTheDocument()
-    expect(screen.getByText('2 lemons')).toBeInTheDocument()
+    expect(screen.getByText('Lemons — 2')).toBeInTheDocument()
   })
 })

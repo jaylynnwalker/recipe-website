@@ -26,7 +26,7 @@ def test_serving_scaling_consolidation_and_staple_exclusion():
     assert carrots.category == 'Produce'
     assert excluded == ['Salt']
     assert all(item.name != 'Ignored' for item in items)
-    assert format_item_label('Tomatoes', Decimal('20'), None) == '20 Tomatoes'
+    assert format_item_label('Tomatoes', Decimal('20'), None) == 'Tomatoes — 20'
 
 
 def test_incomplete_ingredients_are_preserved_without_unsafe_quantities():
@@ -36,6 +36,8 @@ def test_incomplete_ingredients_are_preserved_without_unsafe_quantities():
     ]
     items, excluded = generate_items(entries, [])
     assert excluded == []
-    assert next(item for item in items if item.normalized_name == 'fresh herbs').quantity is None
+    herbs = next(item for item in items if item.normalized_name == 'fresh herb')
+    assert herbs.quantity is None
+    assert {(component.quantity, component.unit) for component in herbs.components} == {(Decimal('1'), None), (None, None)}
     assert next(item for item in items if item.normalized_name == 'lime').quantity is None
     assert all(item.unit is None for item in items)

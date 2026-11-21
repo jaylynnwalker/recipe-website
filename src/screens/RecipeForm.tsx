@@ -7,12 +7,13 @@ import { canonicalUnit, UnitField } from '../components/UnitField'
 type MeasurementDraft = { quantity: string; unit: string }
 type IngredientDraft = { name: string; quantity: string; unit: string; note: string; packageDetail: string; alternatives: MeasurementDraft[] }
 type StepDraft = { instruction: string; tip: string }
+export type ReviewRecipe = Omit<Recipe, 'baseServings'> & { baseServings: number | null }
 
 const emptyIngredient = (): IngredientDraft => ({ name: '', quantity: '', unit: '', note: '', packageDetail: '', alternatives: [] })
 const emptyStep = (): StepDraft => ({ instruction: '', tip: '' })
 
 export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'edit' : 'add', sourceType, onSave, onExtract, onRemoveImage, extracting = false, extractionMessage = '', extractionError = '', onDelete, onCancel }: {
-  recipe?: Recipe | null
+  recipe?: Recipe | ReviewRecipe | null
   classifications: ClassificationOptions
   units: UnitOptions
   mode?: 'add' | 'edit' | 'review'
@@ -37,8 +38,8 @@ export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'ed
   const [cookMinutes, setCookMinutes] = useState(recipe?.cookMinutes ?? 0)
   const [additionalTimeMinutes, setAdditionalTimeMinutes] = useState(recipe?.additionalTimeMinutes ?? 0)
   const [additionalTimeLabel, setAdditionalTimeLabel] = useState(recipe?.additionalTimeLabel ?? 'Additional')
-  const [servings, setServings] = useState(recipe?.baseServings ?? 4)
-  const [yieldUnit, setYieldUnit] = useState(recipe?.yieldUnit ?? 'servings')
+  const [servings, setServings] = useState(recipe ? recipe.baseServings?.toString() ?? '' : '4')
+  const [yieldUnit, setYieldUnit] = useState(recipe ? recipe.yieldUnit ?? '' : 'servings')
   const [ingredients, setIngredients] = useState<IngredientDraft[]>(recipe?.ingredients.map((item) => ({ name: item.name, quantity: item.quantity?.toString() ?? '', unit: item.unit ?? '', note: item.note ?? '', packageDetail: item.packageDetail ?? '', alternatives: item.alternativeMeasurements?.map((measurement) => ({ quantity: measurement.quantity.toString(), unit: measurement.unit ?? '' })) ?? [] })) ?? [emptyIngredient()])
   const [steps, setSteps] = useState<StepDraft[]>(recipe?.steps.map((item) => ({ instruction: item.instruction, tip: item.tip ?? '' })) ?? [emptyStep()])
   const [notes, setNotes] = useState(recipe?.notes ?? '')
@@ -57,11 +58,16 @@ export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'ed
       setError('Add a title, at least one ingredient, and at least one instruction.')
       return
     }
+    const servingCount = Number(servings)
+    if (!servings || !Number.isInteger(servingCount) || servingCount < 1 || servingCount > 100) {
+      setError('Enter a yield amount between 1 and 100 before saving.')
+      return
+    }
     setBusy(true); setError('')
     try {
       await onSave({
         title: title.trim(), description: description.trim(), status, cuisine: cuisine.trim(), proteins, categories, tags,
-        prep_minutes: prepMinutes, cook_minutes: cookMinutes, additional_time_minutes: additionalTimeMinutes, additional_time_label: additionalTimeLabel.trim() || 'Additional', base_servings: servings, yield_unit: yieldUnit.trim() || 'servings',
+        prep_minutes: prepMinutes, cook_minutes: cookMinutes, additional_time_minutes: additionalTimeMinutes, additional_time_label: additionalTimeLabel.trim() || 'Additional', base_servings: servingCount, yield_unit: yieldUnit.trim() || 'servings',
         ingredients: cleanIngredients.map((item) => ({ name: item.name.trim(), quantity: item.quantity === '' ? null : Number(item.quantity), unit: canonicalUnit(item.unit, units) || null, note: item.note.trim() || null, optional: false, package_detail: item.packageDetail.trim() || null, alternative_measurements: item.alternatives.filter((measurement) => measurement.quantity !== '').map((measurement) => ({ quantity: Number(measurement.quantity), unit: canonicalUnit(measurement.unit, units) || null })) })),
         steps: cleanSteps.map((item) => ({ instruction: item.instruction.trim(), tip: item.tip.trim() || null })), notes: notes.trim(),
         source: { type: sourceType ?? (sourceUrl ? 'web' : 'household'), label: sourceName.trim() || 'Household recipe', url: sourceUrl.trim() || null, page: null },
@@ -85,7 +91,7 @@ export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'ed
         <label className="wide">Recipe title<input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <label className="wide">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
         <label>Status<select value={status} onChange={(event) => setStatus(event.target.value as RecipeStatus)}><option>Our Rotation</option><option>Want to Try</option><option>Archived</option></select></label>
-        <label>Yield amount<input type="number" min="1" max="100" value={servings} onChange={(event) => setServings(Number(event.target.value))} /></label>
+        <label>Yield amount<input type="number" min="1" max="100" value={servings} placeholder={mode === 'review' ? 'Enter amount' : undefined} onChange={(event) => setServings(event.target.value)} /></label>
         <label>Yield unit<input value={yieldUnit} placeholder="servings, rotis, slices…" onChange={(event) => setYieldUnit(event.target.value)} /></label>
         <label>Prep time (minutes)<input type="number" min="0" value={prepMinutes} onChange={(event) => setPrepMinutes(Number(event.target.value))} /></label>
         <label>Cook time (minutes)<input type="number" min="0" value={cookMinutes} onChange={(event) => setCookMinutes(Number(event.target.value))} /></label>

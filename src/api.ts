@@ -16,7 +16,7 @@ export interface SavedRecipeMatch { recipe: Recipe; missingIngredients: string[]
 export interface AIRecipeResults { savedMatches: SavedRecipeMatch[]; generatedIdeas: RecipeInput[] }
 export type RecipeInput = {
   title: string; description: string; status: RecipeStatus; cuisine: string; proteins?: string[]; tags: string[]; categories: string[];
-  prep_minutes: number; cook_minutes: number; additional_time_minutes?: number; additional_time_label?: string; base_servings: number; yield_unit?: string;
+  prep_minutes: number; cook_minutes: number; additional_time_minutes?: number; additional_time_label?: string; base_servings: number | null; yield_unit?: string;
   ingredients: { name: string; quantity: number | null; unit: string | null; note: string | null; optional: boolean; package_detail?: string | null; alternative_measurements?: { quantity: number; unit: string | null }[] }[];
   steps: { instruction: string; tip: string | null }[]; notes: string;
   source: { type: string | null; label: string; url: string | null; page: string | null }
@@ -38,7 +38,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { ...options, credentials: 'include', headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers } })
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: 'Request failed' }))
-    throw new Error(body.detail ?? `Request failed (${response.status})`)
+    const detail = body.detail
+    if (Array.isArray(detail)) {
+      const missingYield = detail.some((issue) => issue?.loc?.includes('base_servings'))
+      throw new Error(missingYield ? 'Enter a yield amount of at least 1 before saving.' : 'Please review the highlighted recipe details and try again.')
+    }
+    throw new Error(typeof detail === 'string' ? detail : `Request failed (${response.status})`)
   }
   if (response.status === 204) return undefined as T
   return response.json()

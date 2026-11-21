@@ -19,6 +19,10 @@ def test_ai_recipe_schema_requests_multi_select_protein_sources():
     assert 'proteins' in RECIPE_SCHEMA['required']
 
 
+def test_ai_recipe_schema_allows_unknown_servings():
+    assert {'type': 'null'} in RECIPE_SCHEMA['properties']['base_servings']['anyOf']
+
+
 def recipe_result(title='Pantry Pasta'):
     return {
         'title': title, 'description': 'A reviewable idea.', 'cuisine': 'Italian', 'protein': 'Vegetarian',
@@ -119,3 +123,14 @@ async def test_empty_instagram_title_becomes_readable_review_placeholder():
     parsed = recipe_result('')
     draft = recipe_draft(parsed, {'type': 'instagram', 'label': 'instagram.com', 'url': 'https://www.instagram.com/reel/example/', 'page': None})
     assert draft['title'] == 'Instagram recipe — title needed'
+
+
+async def test_zero_servings_from_extraction_becomes_unspecified_without_losing_content():
+    parsed = recipe_result('Yield unknown')
+    parsed['base_servings'] = 0
+    parsed['ingredients'] = [{'name': 'rice', 'quantity': 1, 'unit': 'cup', 'note': None, 'optional': False}]
+    parsed['steps'] = [{'instruction': 'cook the rice.', 'tip': None}]
+    draft = recipe_draft(parsed, {'type': 'instagram', 'label': 'Instagram', 'url': 'https://www.instagram.com/reel/CyjqvC3uLPm/?hl=en', 'page': None})
+    assert draft['base_servings'] is None
+    assert draft['ingredients'][0]['name'] == 'Rice'
+    assert draft['steps'][0]['instruction'] == 'Cook the rice.'

@@ -73,7 +73,7 @@ class RecipeWrite(BaseModel):
     cook_minutes: int = Field(default=0, ge=0, le=10080)
     additional_time_minutes: int = Field(default=0, ge=0, le=10080)
     additional_time_label: str = Field(default='Additional', max_length=60)
-    base_servings: int = Field(default=4, ge=1, le=100)
+    base_servings: int = Field(ge=1, le=100)
     yield_unit: str = Field(default='servings', max_length=60)
     ingredients: list[IngredientWrite] = Field(default_factory=list, max_length=200)
     steps: list[StepWrite] = Field(default_factory=list, max_length=200)
@@ -99,6 +99,11 @@ class RecipeWrite(BaseModel):
     @classmethod
     def clean_short_label(cls, value: str) -> str:
         return ' '.join(value.split())[:60]
+
+
+class RecipeDraft(RecipeWrite):
+    """Reviewable extraction payload; incomplete yield is allowed until save."""
+    base_servings: int | None = Field(default=None, ge=1, le=100)
 
 
 class RecipeRead(RecipeWrite):

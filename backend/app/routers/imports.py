@@ -49,7 +49,9 @@ def find_duplicate(job: ImportJob, draft: dict, db: Session) -> str | None:
     conditions = []
     if job.source_url: conditions.append(Recipe.source_url == job.source_url)
     title = str(draft.get('title') or '').strip()
-    if title and title not in {'Untitled import', 'Photo recipe'}: conditions.append(Recipe.title.ilike(title))
+    has_recipe_content = bool(draft.get('ingredients') and draft.get('steps'))
+    placeholder = not title or 'title needed' in title.casefold() or title in {'Untitled import', 'Photo recipe', 'Pending recipe import'}
+    if has_recipe_content and not placeholder: conditions.append(Recipe.title.ilike(title))
     if not conditions: return None
     recipe = db.scalar(select(Recipe).where(Recipe.household_id == job.household_id, or_(*conditions)).limit(1))
     return recipe.id if recipe else None
@@ -208,7 +210,8 @@ async def ai_extract_import(job_id: str, workspace: Workspace = Depends(current_
         job = get_job(job_id, workspace.household_id, db); job.status = 'Failed'; job.error_message = str(error) if str(error) else 'AI extraction failed. Retry or enter the recipe manually.'; db.commit()
         if isinstance(error, BudgetExceeded): raise HTTPException(status_code=429, detail=str(error))
         if isinstance(error, AIUnavailable): raise HTTPException(status_code=503, detail=str(error))
-        raise HTTPException(status_code=502, detail='AI extraction failed. The original source is still available.')
+        job.error_message = 'AI extraction failed. The original source and any previously extracted details are still available.'; db.commit()
+        raise HTTPException(status_code=502, detail=job.error_message)
     return serialize(get_job(job_id, workspace.household_id, db))
 
 

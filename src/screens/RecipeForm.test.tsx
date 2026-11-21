@@ -33,6 +33,20 @@ describe('RecipeForm', () => {
     }), undefined)
   })
 
+  it('keeps an unknown imported yield blank and asks for it before saving', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const incomplete = { ...recipes[0], baseServings: null }
+    render(<RecipeForm recipe={incomplete} mode="review" sourceType="instagram" classifications={classifications} units={units} onSave={onSave} onCancel={vi.fn()} />)
+    expect(screen.getByLabelText('Yield amount')).toHaveValue(null)
+    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a yield amount between 1 and 100 before saving.')
+    expect(onSave).not.toHaveBeenCalled()
+    await user.type(screen.getByLabelText('Yield amount'), '3')
+    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ base_servings: 3 }), undefined)
+  })
+
   it('supports selecting and creating normalized classifications', async () => {
     const user = userEvent.setup()
     const onSave = vi.fn().mockResolvedValue(undefined)

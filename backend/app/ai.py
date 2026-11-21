@@ -124,7 +124,7 @@ RECIPE_SCHEMA = {
     'properties': {
         'title': {'type': 'string'}, 'description': {'type': 'string'}, 'cuisine': {'type': 'string'}, 'proteins': {'type': 'array', 'description': 'Explicit protein sources such as chicken, beef, pork, tofu, beans, lentils, eggs, fish, or shellfish; not nutritional protein claims.', 'items': {'type': 'string'}},
         'tags': {'type': 'array', 'items': {'type': 'string'}}, 'categories': {'type': 'array', 'items': {'type': 'string'}},
-        'prep_minutes': {'type': 'integer'}, 'cook_minutes': {'type': 'integer'}, 'additional_time_minutes': {'type': 'integer'}, 'additional_time_label': {'type': 'string'}, 'base_servings': {'type': 'integer'}, 'yield_unit': {'type': 'string'},
+        'prep_minutes': {'type': 'integer'}, 'cook_minutes': {'type': 'integer'}, 'additional_time_minutes': {'type': 'integer'}, 'additional_time_label': {'type': 'string'}, 'base_servings': {'anyOf': [{'type': 'integer', 'minimum': 1}, {'type': 'null'}], 'description': 'Yield amount when explicitly provided; otherwise null.'}, 'yield_unit': {'type': 'string'},
         'ingredients': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'name': {'type': 'string'}, 'quantity': NULL_NUMBER, 'unit': NULL_STRING, 'note': NULL_STRING, 'optional': {'type': 'boolean'}, 'package_detail': NULL_STRING, 'alternative_measurements': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'quantity': {'type': 'number'}, 'unit': NULL_STRING}, 'required': ['quantity', 'unit']}}}, 'required': ['name', 'quantity', 'unit', 'note', 'optional', 'package_detail', 'alternative_measurements']}},
         'steps': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'instruction': {'type': 'string'}, 'tip': NULL_STRING}, 'required': ['instruction', 'tip']}},
         'notes': {'type': 'string'},
@@ -134,10 +134,14 @@ RECIPE_SCHEMA = {
 
 
 def recipe_draft(parsed: dict, source: dict) -> dict:
-    from .schemas import RecipeWrite
+    from .schemas import RecipeDraft
     title = str(parsed.get('title') or '').strip()
     if not title:
         label = {'instagram': 'Instagram', 'facebook': 'Facebook', 'youtube': 'YouTube'}.get(source.get('type'), 'Imported')
         title = f'{label} recipe — title needed'
     payload = normalize_imported_draft({**parsed, 'title': title, 'status': 'Want to Try', 'source': source})
-    return RecipeWrite.model_validate(payload).model_dump(mode='json')
+    # Older/model responses used zero as an unknown sentinel. It is not a real
+    # yield and must remain blank for human review rather than failing the draft.
+    if not payload.get('base_servings') or payload['base_servings'] < 1:
+        payload['base_servings'] = None
+    return RecipeDraft.model_validate(payload).model_dump(mode='json')

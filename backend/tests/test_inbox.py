@@ -172,6 +172,42 @@ async def test_instagram_ai_fallback_still_uses_accessible_caption(authenticated
     assert response.json()['draft']['ingredients']
 
 
+async def test_instagram_missing_servings_remains_reviewable_and_duplicate_does_not_block_extraction(authenticated, recipe_payload, monkeypatch):
+    url = 'https://www.instagram.com/reel/CyjqvC3uLPm/?hl=en'
+    existing = {**recipe_payload, 'title': 'Previously saved reel', 'source': {'type': 'instagram', 'label': 'Instagram', 'url': url, 'page': None}}
+    existing_id = (await authenticated.post('/api/recipes', json=existing)).json()['id']
+    partial = extracted_draft(recipe_payload, url)
+    partial.update(title='Instagram recipe', ingredients=[], steps=[], base_servings=None, yield_unit='')
+    partial['source']['type'] = 'instagram'
+    extracted = {**recipe_payload, 'title': 'Crispy Potatoes', 'base_servings': 0, 'yield_unit': '',
+                 'ingredients': [{'name': '2 potatoes', 'quantity': None, 'unit': None, 'note': None, 'optional': False, 'package_detail': None, 'alternative_measurements': []}],
+                 'steps': [{'instruction': 'Roast until crisp.', 'tip': None}]}
+    async def fake_extract(_url): return partial, False, url, None
+    async def public_html(_url): return '<html><body>Crispy potatoes recipe. Chop potatoes, season, and roast until crisp.</body></html>', url
+    async def no_image(*args): return False
+    async def fake_ai(*args, **kwargs): return extracted
+    monkeypatch.setattr(imports, 'extract_url', fake_extract)
+    monkeypatch.setattr(imports, 'fetch_public_html', public_html)
+    monkeypatch.setattr(imports, 'download_import_image', no_image)
+    monkeypatch.setattr(imports, 'run_structured', fake_ai)
+
+    item = (await authenticated.post('/api/inbox/url', json={'url': url})).json()
+    assert item['duplicate_recipe_id'] == existing_id
+    response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract")
+    assert response.status_code == 200
+    reviewed = response.json()
+    assert reviewed['status'] == 'Ready for Review'
+    assert reviewed['draft']['base_servings'] is None
+    assert reviewed['draft']['ingredients'][0]['name'] == 'Potatoes'
+    assert reviewed['draft']['steps'][0]['instruction'] == 'Roast until crisp.'
+    assert reviewed['duplicate_recipe_id'] == existing_id
+
+    invalid_save = await authenticated.post(f"/api/inbox/{item['id']}/save", json=reviewed['draft'])
+    assert invalid_save.status_code == 422
+    still_reviewable = next(entry for entry in (await authenticated.get('/api/inbox')).json() if entry['id'] == item['id'])
+    assert still_reviewable['draft']['ingredients'][0]['name'] == 'Potatoes'
+
+
 async def test_inaccessible_social_import_reports_failure_without_losing_source(authenticated, monkeypatch):
     async def blocked(_url): raise ImportFailure('The recipe website returned HTTP 403')
     monkeypatch.setattr(imports, 'extract_url', blocked)

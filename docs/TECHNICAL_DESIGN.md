@@ -144,6 +144,7 @@ flowchart TD
 - For social sources, public metadata and descriptions vary by platform and post; never claim universal caption or transcript extraction and never bypass access restrictions.
 - URL imports select Schema.org Recipe images first, then Open Graph/Twitter thumbnails, then a guarded primary-image fallback. Selected JPEG/PNG/WebP files are SSRF-checked, size/image validated, and persisted as Inbox cover assets before becoming recipe photos.
 - Facebook share URLs may resolve to public Reel/video pages, but the unauthenticated page often exposes only title/description metadata and a thumbnail—not video frames, audio, subtitles, or a transcript. Metadata-only content must remain a manual-review failure rather than a fabricated AI recipe.
+- Extracted Inbox drafts may retain an unspecified yield as `null`; saved recipes still require a positive yield amount because serving scaling and grocery calculations depend on it. A missing yield is resolved by the reviewer, never by an invented default.
 - For cookbook photos, accept multiple pages and preserve page order; show original image alongside editable extraction.
 - Limit upload size/type; validate MIME types, strip unsafe filenames, and store outside public static directories.
 - Avoid fetching arbitrary internal/private URLs supplied as recipe links: enforce SSRF protections (block loopback, private IP ranges, redirects into internal networks, etc.).

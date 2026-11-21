@@ -10,7 +10,7 @@ import { Groceries } from './screens/Groceries'
 import { Inbox } from './screens/Inbox'
 import { Settings } from './screens/Settings'
 import { WhatCanIMake } from './screens/WhatCanIMake'
-import { RecipeForm } from './screens/RecipeForm'
+import { RecipeForm, type ReviewRecipe } from './screens/RecipeForm'
 import { HelpMePick } from './screens/HelpMePick'
 import { RecipeCreation } from './screens/RecipeCreation'
 
@@ -164,11 +164,11 @@ export function App() {
   return <Layout page={page} onNavigate={navigate}>{dataError && <p className="data-error" role="alert">{dataError}</p>}{dataNotice && <p className="data-success" role="status">{dataNotice}</p>}{content}</Layout>
 }
 
-function draftToRecipe(draft: RecipeInput, id: string): Recipe {
+function draftToRecipe(draft: RecipeInput, id: string): ReviewRecipe {
   return { id, title: draft.title, description: draft.description, status: draft.status, cuisine: draft.cuisine, proteins: draft.proteins ?? [], tags: draft.tags, categories: draft.categories, prepMinutes: draft.prep_minutes, cookMinutes: draft.cook_minutes, additionalTimeMinutes: draft.additional_time_minutes, additionalTimeLabel: draft.additional_time_label, baseServings: draft.base_servings, yieldUnit: draft.yield_unit, image: null, imageAlt: 'Generated recipe placeholder', ingredients: draft.ingredients.map(({ name, quantity, unit, note, package_detail, alternative_measurements }) => ({ name, quantity, unit: unit ?? undefined, note: note ?? undefined, packageDetail: package_detail ?? undefined, alternativeMeasurements: alternative_measurements?.map((measurement) => ({ quantity: measurement.quantity, unit: measurement.unit ?? undefined })) })), steps: draft.steps.map(({ instruction, tip }) => ({ instruction, tip: tip ?? undefined })), notes: draft.notes, source: { label: draft.source.label, url: draft.source.url ?? undefined }, cookingHistory: [] }
 }
 
-function inboxDraftToRecipe(item: InboxRecord): Recipe {
+function inboxDraftToRecipe(item: InboxRecord): ReviewRecipe {
   const draft = item.draft
   const reviewImage = item.assets.find((asset) => asset.role === 'cover') ?? item.assets[0]
   return {

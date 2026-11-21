@@ -9,7 +9,7 @@ export interface GroceryPreview { additions: string[]; updates: string[]; remova
 export type InboxStatus = 'Pending' | 'Processing' | 'Ready for Review' | 'Failed' | 'Saved'
 export interface ClassificationOptions { categories: string[]; cuisines: string[]; proteins?: string[]; tags: string[] }
 export interface UnitOptions { options: string[]; aliases: Record<string, string> }
-export interface InboxAssetRecord { id: string; url: string; name: string; media_type: string; position: number }
+export interface InboxAssetRecord { id: string; url: string; name: string; media_type: string; position: number; role?: 'source' | 'cover' }
 export interface InboxRecord { id: string; sourceType: 'web' | 'youtube' | 'instagram' | 'facebook' | 'photo'; sourceUrl: string | null; status: InboxStatus; title: string; draft: RecipeInput; errorMessage: string | null; duplicateRecipeId: string | null; savedRecipeId: string | null; assets: InboxAssetRecord[]; createdAt: string; updatedAt: string }
 export interface AIUsage { month: string; spent_usd: number; reserved_usd: number; budget_usd: number; warning_usd: number; warning: boolean; blocked: boolean; model: string; configured: boolean; disclaimer: string }
 export interface SavedRecipeMatch { recipe: Recipe; missingIngredients: string[]; matchedCount: number }
@@ -67,6 +67,7 @@ export const api = {
   deleteRecipe: (id: string) => request<void>(`/api/recipes/${id}`, { method: 'DELETE' }),
   madeThis: (id: string) => request<ApiRecipe>(`/api/recipes/${id}/made-this`, { method: 'POST' }).then(mapRecipe),
   uploadPhoto: (id: string, file: File, altText: string) => { const body = new FormData(); body.append('file', file); body.append('alt_text', altText); return request(`/api/recipes/${id}/photos`, { method: 'POST', body }) },
+  removeRecipePhoto: (id: string) => request<void>(`/api/recipes/${id}/photo`, { method: 'DELETE' }),
   pantry: () => request<PantryStapleRecord[]>('/api/pantry-staples'),
   addStaple: (name: string) => request<PantryStapleRecord>('/api/pantry-staples', { method: 'POST', body: JSON.stringify({ name }) }),
   removeStaple: (id: string) => request<void>(`/api/pantry-staples/${id}`, { method: 'DELETE' }),
@@ -88,6 +89,7 @@ export const api = {
   retryImport: (id: string) => request<ApiInboxRecord>(`/api/inbox/${id}/retry`, { method: 'POST' }).then(mapInbox),
   saveImport: (id: string, payload: RecipeInput) => request<ApiRecipe>(`/api/inbox/${id}/save`, { method: 'POST', body: JSON.stringify(payload) }).then(mapRecipe),
   deleteImport: (id: string) => request<void>(`/api/inbox/${id}`, { method: 'DELETE' }),
+  removeImportImage: (id: string) => request<ApiInboxRecord>(`/api/inbox/${id}/image`, { method: 'DELETE' }).then(mapInbox),
   aiExtractImport: async (id: string) => {
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), 120_000)

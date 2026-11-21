@@ -3,6 +3,7 @@ from datetime import timedelta
 from html.parser import HTMLParser
 import ipaddress
 import json
+import html as html_module
 import re
 import socket
 from urllib.parse import urljoin, urlparse
@@ -23,6 +24,7 @@ class MetadataParser(HTMLParser):
         self.metadata: dict[str, str] = {}
         self._script = False
         self._buffer: list[str] = []
+        self.images: list[dict[str, str]] = []
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
@@ -31,6 +33,8 @@ class MetadataParser(HTMLParser):
         if tag == 'meta':
             key = values.get('property') or values.get('name')
             if key and values.get('content'): self.metadata[key.casefold()] = values['content']
+        if tag == 'img' and (values.get('src') or values.get('data-src')):
+            self.images.append(values)
 
     def handle_data(self, data):
         if self._script: self._buffer.append(data)
@@ -127,6 +131,58 @@ def instruction_text(value) -> list[str]:
     return result
 
 
+def _image_value(value) -> str | None:
+    if isinstance(value, str): return value.strip() or None
+    if isinstance(value, list):
+        return next((result for item in value if (result := _image_value(item))), None)
+    if isinstance(value, dict):
+        return _image_value(value.get('url') or value.get('contentUrl'))
+    return None
+
+
+def image_url_from_page(html: str, final_url: str) -> str | None:
+    """Choose a likely finished-dish image without fetching it."""
+    parser = MetadataParser(); parser.feed(html)
+    decoded = []
+    for raw in parser.json_ld:
+        try: decoded.append(json.loads(raw))
+        except (json.JSONDecodeError, TypeError): continue
+    recipe = next((node for value in decoded for node in nodes(value) if type_is(node, 'Recipe')), None)
+    candidates = [
+        _image_value(recipe.get('image')) if recipe else None,
+        parser.metadata.get('og:image:secure_url'), parser.metadata.get('og:image'),
+        parser.metadata.get('twitter:image'), parser.metadata.get('twitter:image:src'),
+    ]
+    selected = next((candidate for candidate in candidates if candidate), None)
+    if not selected:
+        scored = []
+        for image in parser.images:
+            source = image.get('src') or image.get('data-src') or ''
+            context = ' '.join([source, image.get('alt', ''), image.get('class', ''), image.get('id', '')]).casefold()
+            if any(word in context for word in ('logo', 'avatar', 'icon', 'banner', 'advert', 'tracking', 'pixel')): continue
+            score = sum(word in context for word in ('recipe', 'dish', 'food', 'hero', 'main', 'featured'))
+            try: score += int(image.get('width', '0')) >= 500
+            except ValueError: pass
+            scored.append((score, source))
+        if scored: selected = max(scored, key=lambda item: item[0])[1]
+    if not selected: return None
+    try: return validate_external_url(urljoin(final_url, selected))
+    except ImportFailure: return None
+
+
+def public_text_from_html(html: str) -> str:
+    cleaned = re.sub(r'<(script|style)\b[^>]*>.*?</\1>', ' ', html, flags=re.IGNORECASE | re.DOTALL)
+    return re.sub(r'\s+', ' ', html_module.unescape(re.sub(r'<[^>]+>', ' ', cleaned))).strip()
+
+
+def clean_social_title(value: str) -> str:
+    title = re.sub(r'^\s*[\d.,]+\s*[KMB]?\s+(?:views?|reactions?|likes?)\s*(?:[·|]\s*)?', '', value, flags=re.IGNORECASE)
+    title = re.sub(r'^\s*[\d.,]+\s*[KMB]?\s+(?:views?|reactions?|likes?)\s*(?:[·|]\s*)?', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s*#[\w-]+', '', title)
+    parts = [part.strip() for part in title.split('|') if part.strip()]
+    return (parts[0] if parts else title).strip(' -·')
+
+
 def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
     parser = MetadataParser(); parser.feed(html)
     decoded = []
@@ -168,7 +224,8 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
     if source_type:
         video = next((node for value in decoded for node in nodes(value) if type_is(node, 'VideoObject')), {})
         label = {'youtube': 'YouTube', 'instagram': 'Instagram', 'facebook': 'Facebook'}[source_type]
-        title = str(video.get('name') or parser.metadata.get('og:title') or parser.metadata.get('twitter:title') or f'{label} recipe — title needed').strip()
+        raw_title = str(video.get('name') or parser.metadata.get('og:title') or parser.metadata.get('twitter:title') or '').strip()
+        title = clean_social_title(raw_title) or f'{label} recipe — title needed'
         description = str(video.get('description') or parser.metadata.get('og:description') or parser.metadata.get('description') or '').strip()
         return empty_draft(title, description, final_url, source_type, host), False
     raise ImportFailure('No structured recipe metadata was found. You can retry or add this recipe manually.')
@@ -178,10 +235,10 @@ def empty_draft(title: str, description: str, url: str | None, source_type: str,
     return {'title': title, 'description': description, 'status': 'Want to Try', 'cuisine': '', 'proteins': [], 'tags': [], 'categories': [], 'prep_minutes': 0, 'cook_minutes': 0, 'additional_time_minutes': 0, 'additional_time_label': 'Additional', 'base_servings': 4, 'yield_unit': 'servings', 'ingredients': [], 'steps': [], 'notes': '', 'source': {'type': source_type, 'label': label, 'url': url, 'page': None}}
 
 
-async def extract_url(url: str) -> tuple[dict, bool, str]:
+async def extract_url(url: str) -> tuple[dict, bool, str, str | None]:
     html, final_url = await fetch_public_html(url)
     draft, complete = parse_page(html, final_url)
-    return draft, complete, final_url
+    return draft, complete, final_url, image_url_from_page(html, final_url)
 
 
 def social_source_type(host: str) -> str | None:

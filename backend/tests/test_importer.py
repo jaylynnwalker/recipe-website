@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.importer import ImportFailure, duration_minutes, parse_page, social_source_type, validate_external_url
+from app.importer import ImportFailure, clean_social_title, duration_minutes, image_url_from_page, parse_page, social_source_type, validate_external_url
 from app.ingredient_parser import capitalize_first_letter, normalize_imported_draft, normalize_imported_ingredient, parse_imported_ingredient
 
 
@@ -80,6 +80,19 @@ def test_instagram_without_title_uses_reviewable_placeholder():
     assert complete is False
     assert draft['title'] == 'Instagram recipe — title needed'
     assert social_source_type('www.instagram.com') == 'instagram'
+
+
+def test_image_selection_prioritizes_recipe_schema_then_open_graph():
+    schema = {'@context': 'https://schema.org', '@type': 'Recipe', 'name': 'Soup', 'image': [{'url': '/finished-soup.webp'}]}
+    html = f'<meta property="og:image" content="https://cdn.example/fallback.jpg"><script type="application/ld+json">{json.dumps(schema)}</script>'
+    assert image_url_from_page(html, 'https://recipes.example/soup') == 'https://recipes.example/finished-soup.webp'
+    assert image_url_from_page('<meta property="og:image" content="https://cdn.example/video.jpg">', 'https://www.youtube.com/watch?v=1') == 'https://cdn.example/video.jpg'
+
+
+def test_primary_image_fallback_avoids_logos_and_social_title_removes_engagement_noise():
+    html = '<img class="site-logo" src="/logo.png"><img class="recipe hero" width="900" src="/dish.jpg">'
+    assert image_url_from_page(html, 'https://recipes.example/post') == 'https://recipes.example/dish.jpg'
+    assert clean_social_title('479K views · 125K reactions | How to polish your punch. #altonbrown #foodscience | Alton Brown') == 'How to polish your punch.'
 
 
 def test_ssrf_validation_rejects_local_addresses_and_unusual_ports():

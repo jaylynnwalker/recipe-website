@@ -270,6 +270,7 @@ class ImportAsset(Base):
     storage_name: Mapped[str] = mapped_column(String(255), unique=True)
     original_name: Mapped[str] = mapped_column(String(255))
     media_type: Mapped[str] = mapped_column(String(80))
+    role: Mapped[str] = mapped_column(String(30), default="source")
     position: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     job: Mapped[ImportJob] = relationship(back_populates="assets")

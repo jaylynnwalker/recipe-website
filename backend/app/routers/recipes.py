@@ -218,6 +218,18 @@ async def upload_photo(recipe_id: str, file: UploadFile = File(...), alt_text: s
     return {'id': photo.id, 'url': f'/media/{photo.storage_name}', 'alt_text': photo.alt_text, 'media_type': photo.media_type}
 
 
+@router.delete('/{recipe_id}/photo', status_code=status.HTTP_204_NO_CONTENT)
+async def remove_cover_photo(recipe_id: str, workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
+    recipe = get_household_recipe(recipe_id, workspace.household_id, db)
+    cover = next((photo for photo in recipe.photos if photo.is_cover), recipe.photos[0] if recipe.photos else None)
+    if not cover: raise HTTPException(status_code=404, detail='Recipe image not found')
+    (get_settings().media_root / cover.storage_name).unlink(missing_ok=True)
+    db.delete(cover); db.flush()
+    remaining = [photo for photo in recipe.photos if photo.id != cover.id]
+    if remaining: remaining[0].is_cover = True
+    db.commit()
+
+
 @router.post('/{recipe_id}/made-this', response_model=RecipeRead)
 async def made_this(recipe_id: str, workspace: Workspace = Depends(current_workspace), db: Session = Depends(get_db)):
     recipe = get_household_recipe(recipe_id, workspace.household_id, db)

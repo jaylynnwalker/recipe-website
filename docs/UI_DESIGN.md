@@ -171,6 +171,7 @@ Match the **first approved light sage-and-cream mockup**, including the original
 - Photo imports clearly state that originals are preserved. **Extract with AI** processes ordered multi-page images only on request; failures retain the originals and allow retry or manual transcription.
 - Review screen shows extracted title, ingredients, instructions, tags, and source details for correction before saving.
 - Review includes **Extract with AI** for photo and URL sources. Re-extraction confirms before replacing unsaved edits, retains the original source, and leaves current fields untouched when extraction fails.
+- URL imports show a locally stored extracted cover image when available. Reviewers can replace it with an upload or remove it without affecting the recipe text or source URL.
 - AI extraction shows a persistent **Extracting…** state, prevents duplicate submissions, reports friendly failures, and opens successful results directly in the review editor.
 - Extracted ingredient names and instruction steps begin with a capital letter for readability; formatting preserves all remaining source capitalization rather than applying title case.
 - After a successful save, the completed Inbox record is retained for source/history purposes but immediately disappears from the active queue and its count. Failed or incomplete saves remain available for correction and retry.

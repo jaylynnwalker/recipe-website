@@ -11,7 +11,7 @@ type StepDraft = { instruction: string; tip: string }
 const emptyIngredient = (): IngredientDraft => ({ name: '', quantity: '', unit: '', note: '', packageDetail: '', alternatives: [] })
 const emptyStep = (): StepDraft => ({ instruction: '', tip: '' })
 
-export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'edit' : 'add', sourceType, onSave, onExtract, extracting = false, extractionMessage = '', extractionError = '', onDelete, onCancel }: {
+export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'edit' : 'add', sourceType, onSave, onExtract, onRemoveImage, extracting = false, extractionMessage = '', extractionError = '', onDelete, onCancel }: {
   recipe?: Recipe | null
   classifications: ClassificationOptions
   units: UnitOptions
@@ -19,6 +19,7 @@ export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'ed
   sourceType?: string
   onSave: (payload: RecipeInput, photo?: File) => Promise<void>
   onExtract?: () => Promise<void>
+  onRemoveImage?: () => Promise<void>
   extracting?: boolean
   extractionMessage?: string
   extractionError?: string
@@ -98,7 +99,7 @@ export function RecipeForm({ recipe, classifications, units, mode = recipe ? 'ed
       <section><div className="form-section-title"><h2>Instructions</h2><button className="secondary small" type="button" onClick={() => setSteps([...steps, emptyStep()])}>+ Add step</button></div>
         <div className="form-repeater">{steps.map((step, index) => <div className="step-fields" key={index}><span>{index + 1}</span><div><textarea aria-label={`Instruction ${index + 1}`} placeholder="Describe this step" rows={2} value={step.instruction} onChange={(event) => updateStep(index, 'instruction', event.target.value)} /><input aria-label={`Cooking tip ${index + 1}`} placeholder="Inline cooking tip (optional)" value={step.tip} onChange={(event) => updateStep(index, 'tip', event.target.value)} /></div><button className="remove-row" type="button" aria-label={`Remove instruction ${index + 1}`} onClick={() => setSteps(steps.filter((_, position) => position !== index))}>×</button></div>)}</div>
       </section>
-      <section><h2>Source & notes</h2><div className="form-grid"><label>Source name<input value={sourceName} onChange={(event) => setSourceName(event.target.value)} /></label><label>Original URL<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} /></label><label className="wide">Kitchen notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label><label className="wide">Recipe photo <small>JPEG, PNG, or WebP</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files?.[0])} /></label></div></section>
+      <section><h2>Source & notes</h2><div className="form-grid"><label>Source name<input value={sourceName} onChange={(event) => setSourceName(event.target.value)} /></label><label>Original URL<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} /></label><label className="wide">Kitchen notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label><label className="wide">Recipe photo <small>JPEG, PNG, or WebP. Choosing a file replaces the extracted image when saved.</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files?.[0])} /></label>{onRemoveImage && <button className="remove" type="button" onClick={() => void onRemoveImage()}>Remove extracted image</button>}</div></section>
       <div className="form-actions">{recipe && onDelete && <button className="danger" type="button" disabled={busy} onClick={async () => { if (window.confirm(`Delete “${recipe.title}”? This cannot be undone.`)) { setBusy(true); try { await onDelete() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to delete recipe'); setBusy(false) } } }}>Delete recipe</button>}<span /><button className="secondary" type="button" onClick={onCancel}>Cancel</button><button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save recipe'}</button></div>
     </form>
   </div>

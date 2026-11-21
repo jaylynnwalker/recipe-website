@@ -217,12 +217,17 @@ async def test_youtube_transcript_reaches_ai_and_populates_recipe(authenticated,
     captured_prompt = ''
     async def fake_extract(_url): return partial, False, url, None
     async def public_html(_url): return '<html><body>YouTube player</body></html>', url
-    async def transcript(_html): return 'First chop 2 onions. Then fry them in 1 tablespoon oil. Simmer for ten minutes.', 'en automatic captions'
+    async def transcript(_html): return 'Chapter 1: Preparing the pie crust. Use 2 cups flour. Chapter 2: Making the blackberry filling. Add 5 cups blackberries. Assemble and bake.', 'en automatic captions'
     async def no_image(*args): return False
     async def fake_ai(*args, **kwargs):
         nonlocal captured_prompt
         captured_prompt = args[4]
-        return {**recipe_payload, 'title': 'Onion Supper', 'ingredients': [{'name': 'onions', 'quantity': 2, 'unit': 'whole', 'note': None, 'optional': False}], 'steps': [{'instruction': 'chop the onions.', 'tip': None}, {'instruction': 'fry and simmer.', 'tip': None}]}
+        return {**recipe_payload, 'title': 'Blackberry Cobbler', 'ingredient_sections': [{'heading': 'Crust'}, {'heading': 'Filling'}],
+            'ingredients': [
+                {'name': 'flour', 'quantity': 2, 'unit': 'cup', 'note': None, 'optional': False, 'section_index': 0},
+                {'name': 'blackberries', 'quantity': 5, 'unit': 'cup', 'note': None, 'optional': False, 'section_index': 1},
+            ],
+            'steps': [{'instruction': 'make the crust.', 'tip': None}, {'instruction': 'add the filling and bake.', 'tip': None}]}
     monkeypatch.setattr(imports, 'extract_url', fake_extract)
     monkeypatch.setattr(imports, 'fetch_public_html', public_html)
     monkeypatch.setattr(imports, 'fetch_youtube_transcript', transcript)
@@ -233,9 +238,11 @@ async def test_youtube_transcript_reaches_ai_and_populates_recipe(authenticated,
     response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract", json={})
     assert response.status_code == 200
     result = response.json()
-    assert 'First chop 2 onions' in captured_prompt
-    assert result['draft']['ingredients'][0]['name'] == 'Onions'
-    assert [step['instruction'] for step in result['draft']['steps']] == ['Chop the onions.', 'Fry and simmer.']
+    assert 'Preparing the pie crust' in captured_prompt
+    assert result['draft']['ingredient_sections'] == [{'heading': 'Crust'}, {'heading': 'Filling'}]
+    assert [ingredient['section_index'] for ingredient in result['draft']['ingredients']] == [0, 1]
+    assert [ingredient['name'] for ingredient in result['draft']['ingredients']] == ['Flour', 'Blackberries']
+    assert [step['instruction'] for step in result['draft']['steps']] == ['Make the crust.', 'Add the filling and bake.']
     assert 'automatic captions' in result['error_message']
 
 

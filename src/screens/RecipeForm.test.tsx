@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { recipes } from '../data'
@@ -177,8 +177,38 @@ describe('RecipeForm', () => {
       steps: expect.arrayContaining([expect.objectContaining({ section_index: 0 })]),
     }), undefined)
 
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     await user.click(screen.getByLabelText('Delete ingredient section 1'))
     expect(screen.queryByDisplayValue('Filling')).not.toBeInTheDocument()
+  })
+
+  it('visually groups imported ingredients and safely moves them when a section is deleted', async () => {
+    const user = userEvent.setup()
+    const sectioned = { ...recipes[0], ingredientSections: ['Crust', 'Filling'], ingredients: [
+      { quantity: 2, unit: 'cup', name: 'Flour', sectionIndex: 0 },
+      { quantity: 5, unit: 'cup', name: 'Blackberries', sectionIndex: 1 },
+      { quantity: .5, unit: 'tsp', name: 'Salt', sectionIndex: null },
+    ] }
+    render(<RecipeForm recipe={sectioned} mode="review" sourceType="youtube" classifications={classifications} units={units} onSave={vi.fn()} onCancel={vi.fn()} />)
+
+    const crustGroup = screen.getByLabelText('Ingredient section 1 heading').closest('.ingredient-section-group') as HTMLElement
+    const fillingGroup = screen.getByLabelText('Ingredient section 2 heading').closest('.ingredient-section-group') as HTMLElement
+    expect(within(crustGroup).getByLabelText('Ingredient 1')).toHaveValue('Flour')
+    expect(within(fillingGroup).getByLabelText('Ingredient 2')).toHaveValue('Blackberries')
+    expect(within(screen.getByRole('heading', { name: 'No section' }).closest('.ingredient-section-group') as HTMLElement).getByLabelText('Ingredient 3')).toHaveValue('Salt')
+
+    await user.selectOptions(screen.getByLabelText('Ingredient 1 section'), '1')
+    expect(within(screen.getByLabelText('Ingredient section 2 heading').closest('.ingredient-section-group') as HTMLElement).getByLabelText('Ingredient 1')).toHaveValue('Flour')
+
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    await user.click(screen.getByLabelText('Delete ingredient section 2'))
+    expect(screen.getByLabelText('Ingredient section 2 heading')).toHaveValue('Filling')
+    await user.click(screen.getByLabelText('Delete ingredient section 2'))
+    expect(screen.queryByLabelText('Ingredient section 2 heading')).not.toBeInTheDocument()
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('will be moved to No section'))
+    const unsectioned = screen.getByRole('heading', { name: 'No section' }).closest('.ingredient-section-group') as HTMLElement
+    expect(within(unsectioned).getByLabelText('Ingredient 1')).toHaveValue('Flour')
+    expect(within(unsectioned).getByLabelText('Ingredient 2')).toHaveValue('Blackberries')
   })
 
   it('preserves a long pasted transcript after extraction failure for retry', async () => {

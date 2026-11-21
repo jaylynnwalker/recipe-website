@@ -28,6 +28,7 @@ def test_ai_recipe_schema_supports_independent_sections():
     assert 'instruction_sections' in RECIPE_SCHEMA['required']
     assert 'section_index' in RECIPE_SCHEMA['properties']['ingredients']['items']['required']
     assert 'section_index' in RECIPE_SCHEMA['properties']['steps']['items']['required']
+    assert 'Zero-based index into ingredient_sections' in RECIPE_SCHEMA['properties']['ingredients']['items']['properties']['section_index']['description']
 
 
 def test_incomplete_ai_response_reports_output_limit_clearly():

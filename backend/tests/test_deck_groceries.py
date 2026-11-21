@@ -93,3 +93,18 @@ async def test_multiple_deck_recipes_consolidate_and_refresh_after_lineup_change
     assert remaining_carrots['quantity'] == 16 and remaining_carrots['unit'] == 'oz'
     assert not any(item['name'] == 'fresh herbs' for item in refreshed['items'])
     assert any(item['id'] == manual['id'] for item in refreshed['items'])
+
+
+async def test_grocery_generation_includes_every_ingredient_section_once(authenticated, recipe_payload):
+    payload = {**recipe_payload, 'title': 'Sectioned Dinner', 'ingredient_sections': [{'heading': 'Marinade'}, {'heading': 'Main'}], 'ingredients': [
+        {'name': 'Olive oil', 'quantity': 2, 'unit': 'tbsp', 'note': None, 'optional': False, 'section_index': 0, 'alternative_measurements': [{'quantity': 30, 'unit': 'mL'}]},
+        {'name': 'Chicken', 'quantity': 1, 'unit': 'lb', 'note': None, 'optional': False, 'section_index': 1},
+    ]}
+    recipe = (await authenticated.post('/api/recipes', json=payload)).json()
+    await authenticated.post('/api/deck', json={'recipe_id': recipe['id'], 'servings': 8})
+    grocery = (await authenticated.post('/api/grocery-list/apply')).json()
+    oil = next(item for item in grocery['items'] if item['name'] == 'olive oil')
+    chicken = next(item for item in grocery['items'] if item['name'] == 'chicken')
+    assert (oil['quantity'], oil['unit']) == (4, 'tbsp')
+    assert (chicken['quantity'], chicken['unit']) == (2, 'lb')
+    assert len([item for item in grocery['items'] if item['name'] == 'olive oil']) == 1

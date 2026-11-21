@@ -6,7 +6,7 @@ import pytest
 
 from pydantic import SecretStr
 
-from app.ai import AIUnavailable, BUDGET_MICROUSD, RECIPE_SCHEMA, recipe_draft
+from app.ai import AIInvalidResponse, AIUnavailable, BUDGET_MICROUSD, RECIPE_SCHEMA, output_text, recipe_draft
 from app.config import get_settings
 from app.models import AIMonthlyBudget
 from app import ai as ai_service
@@ -21,6 +21,18 @@ def test_ai_recipe_schema_requests_multi_select_protein_sources():
 
 def test_ai_recipe_schema_allows_unknown_servings():
     assert {'type': 'null'} in RECIPE_SCHEMA['properties']['base_servings']['anyOf']
+
+
+def test_ai_recipe_schema_supports_independent_sections():
+    assert 'ingredient_sections' in RECIPE_SCHEMA['required']
+    assert 'instruction_sections' in RECIPE_SCHEMA['required']
+    assert 'section_index' in RECIPE_SCHEMA['properties']['ingredients']['items']['required']
+    assert 'section_index' in RECIPE_SCHEMA['properties']['steps']['items']['required']
+
+
+def test_incomplete_ai_response_reports_output_limit_clearly():
+    with pytest.raises(AIInvalidResponse, match='ran out of output space'):
+        output_text({'status': 'incomplete', 'incomplete_details': {'reason': 'max_output_tokens'}, 'output': []})
 
 
 def recipe_result(title='Pantry Pasta'):
@@ -115,7 +127,7 @@ async def test_multi_image_extraction_requires_review_and_preserves_sources(auth
     assert extracted['status'] == 'Ready for Review'
     assert extracted['draft']['title'] == 'Grandma’s Soup'
     assert {key: extracted['draft']['ingredients'][0][key] for key in ('name', 'quantity', 'unit', 'note', 'optional')} == {'name': 'Carrots, diced', 'quantity': 1.5, 'unit': 'cup', 'note': None, 'optional': False}
-    assert extracted['draft']['steps'][0] == {'instruction': 'Simmer with an Instant Pot for 10 minutes.', 'tip': 'keep this lower-case'}
+    assert extracted['draft']['steps'][0] == {'instruction': 'Simmer with an Instant Pot for 10 minutes.', 'tip': 'keep this lower-case', 'section_index': None}
     assert len(extracted['assets']) == 2
 
 

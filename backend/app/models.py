@@ -89,6 +89,7 @@ class Recipe(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     ingredients: Mapped[list[RecipeIngredient]] = relationship(back_populates="recipe", cascade="all, delete-orphan", order_by="RecipeIngredient.position")
     steps: Mapped[list[RecipeStep]] = relationship(back_populates="recipe", cascade="all, delete-orphan", order_by="RecipeStep.position")
+    sections: Mapped[list[RecipeSection]] = relationship(back_populates="recipe", cascade="all, delete-orphan", order_by="RecipeSection.position")
     tags: Mapped[list[Tag]] = relationship(secondary=recipe_tags)
     categories: Mapped[list[Category]] = relationship(secondary=recipe_categories)
     proteins: Mapped[list[Protein]] = relationship(secondary=recipe_proteins)
@@ -108,6 +109,7 @@ class RecipeIngredient(Base):
     __table_args__ = (UniqueConstraint("recipe_id", "position", name="uq_recipe_ingredient_position"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), index=True)
+    section_id: Mapped[str | None] = mapped_column(ForeignKey("recipe_sections.id", ondelete="SET NULL"), nullable=True, index=True)
     ingredient_id: Mapped[str] = mapped_column(ForeignKey("ingredients.id"), index=True)
     position: Mapped[int] = mapped_column(Integer)
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
@@ -118,6 +120,7 @@ class RecipeIngredient(Base):
     recipe: Mapped[Recipe] = relationship(back_populates="ingredients")
     ingredient: Mapped[Ingredient] = relationship()
     alternative_measurements: Mapped[list[IngredientMeasurement]] = relationship(cascade="all, delete-orphan", order_by="IngredientMeasurement.position")
+    section: Mapped[RecipeSection | None] = relationship()
 
 
 class IngredientMeasurement(Base):
@@ -135,10 +138,23 @@ class RecipeStep(Base):
     __table_args__ = (UniqueConstraint("recipe_id", "position", name="uq_recipe_step_position"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), index=True)
+    section_id: Mapped[str | None] = mapped_column(ForeignKey("recipe_sections.id", ondelete="SET NULL"), nullable=True, index=True)
     position: Mapped[int] = mapped_column(Integer)
     instruction: Mapped[str] = mapped_column(Text)
     tip: Mapped[str | None] = mapped_column(Text, nullable=True)
     recipe: Mapped[Recipe] = relationship(back_populates="steps")
+    section: Mapped[RecipeSection | None] = relationship()
+
+
+class RecipeSection(Base):
+    __tablename__ = "recipe_sections"
+    __table_args__ = (UniqueConstraint("recipe_id", "kind", "position", name="uq_recipe_section_position"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    heading: Mapped[str] = mapped_column(String(120))
+    position: Mapped[int] = mapped_column(Integer)
+    recipe: Mapped[Recipe] = relationship(back_populates="sections")
 
 
 class Tag(Base):

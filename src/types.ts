@@ -7,6 +7,7 @@ export interface Ingredient {
   note?: string
   packageDetail?: string
   alternativeMeasurements?: IngredientMeasurement[]
+  sectionIndex?: number | null
 }
 
 export interface IngredientMeasurement { quantity: number; unit?: string }
@@ -14,6 +15,7 @@ export interface IngredientMeasurement { quantity: number; unit?: string }
 export interface RecipeStep {
   instruction: string
   tip?: string
+  sectionIndex?: number | null
 }
 
 export interface Recipe {
@@ -35,6 +37,8 @@ export interface Recipe {
   imageAlt: string
   ingredients: Ingredient[]
   steps: RecipeStep[]
+  ingredientSections?: string[]
+  instructionSections?: string[]
   notes: string
   source: { label: string; url?: string }
   cookingHistory?: string[]

@@ -27,6 +27,7 @@ class IngredientWrite(BaseModel):
     optional: bool = False
     package_detail: str | None = Field(default=None, max_length=100)
     alternative_measurements: list[IngredientMeasurementWrite] = Field(default_factory=list, max_length=10)
+    section_index: int | None = Field(default=None, ge=0)
 
     @field_validator('unit')
     @classmethod
@@ -41,6 +42,7 @@ class IngredientRead(IngredientWrite):
 class StepWrite(BaseModel):
     instruction: str = Field(min_length=1, max_length=5000)
     tip: str | None = Field(default=None, max_length=2000)
+    section_index: int | None = Field(default=None, ge=0)
 
 
 class StepRead(StepWrite):
@@ -61,6 +63,10 @@ class PhotoRead(BaseModel):
     media_type: str
 
 
+class RecipeSectionWrite(BaseModel):
+    heading: str = Field(min_length=1, max_length=120)
+
+
 class RecipeWrite(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default='', max_length=5000)
@@ -77,6 +83,8 @@ class RecipeWrite(BaseModel):
     yield_unit: str = Field(default='servings', max_length=60)
     ingredients: list[IngredientWrite] = Field(default_factory=list, max_length=200)
     steps: list[StepWrite] = Field(default_factory=list, max_length=200)
+    ingredient_sections: list[RecipeSectionWrite] = Field(default_factory=list, max_length=30)
+    instruction_sections: list[RecipeSectionWrite] = Field(default_factory=list, max_length=30)
     notes: str = Field(default='', max_length=20000)
     source: SourceWrite = Field(default_factory=SourceWrite)
 
@@ -156,7 +164,7 @@ class InboxUrlCreate(BaseModel):
 
 
 class AIExtractRequest(BaseModel):
-    manual_transcript: str | None = Field(default=None, max_length=100_000)
+    manual_transcript: str | None = Field(default=None, max_length=200_000)
 
 
 class IngredientIdeaRequest(BaseModel):

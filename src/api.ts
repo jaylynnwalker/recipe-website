@@ -17,16 +17,18 @@ export interface AIRecipeResults { savedMatches: SavedRecipeMatch[]; generatedId
 export type RecipeInput = {
   title: string; description: string; status: RecipeStatus; cuisine: string; proteins?: string[]; tags: string[]; categories: string[];
   prep_minutes: number; cook_minutes: number; additional_time_minutes?: number; additional_time_label?: string; base_servings: number | null; yield_unit?: string;
-  ingredients: { name: string; quantity: number | null; unit: string | null; note: string | null; optional: boolean; package_detail?: string | null; alternative_measurements?: { quantity: number; unit: string | null }[] }[];
-  steps: { instruction: string; tip: string | null }[]; notes: string;
+  ingredient_sections?: { heading: string }[]; instruction_sections?: { heading: string }[];
+  ingredients: { name: string; quantity: number | null; unit: string | null; note: string | null; optional: boolean; package_detail?: string | null; section_index?: number | null; alternative_measurements?: { quantity: number; unit: string | null }[] }[];
+  steps: { instruction: string; tip: string | null; section_index?: number | null }[]; notes: string;
   source: { type: string | null; label: string; url: string | null; page: string | null }
 }
 
-type ApiIngredient = { name: string; quantity: number | null; unit?: string | null; note?: string | null; package_detail?: string | null; alternative_measurements?: { quantity: number; unit?: string | null }[] }
+type ApiIngredient = { name: string; quantity: number | null; unit?: string | null; note?: string | null; package_detail?: string | null; section_index?: number | null; alternative_measurements?: { quantity: number; unit?: string | null }[] }
 type ApiRecipe = {
   id: string; title: string; description: string; status: RecipeStatus; cuisine: string; proteins: string[]; tags: string[]; categories: string[];
   prep_minutes: number; cook_minutes: number; additional_time_minutes: number; additional_time_label: string; base_servings: number; yield_unit: string; image: string | null; image_alt: string;
-  ingredients: ApiIngredient[]; steps: { instruction: string; tip?: string | null }[]; notes: string;
+  ingredient_sections?: { heading: string }[]; instruction_sections?: { heading: string }[];
+  ingredients: ApiIngredient[]; steps: { instruction: string; tip?: string | null; section_index?: number | null }[]; notes: string;
   source: { label: string; url?: string | null }; cooking_history: string[]
 }
 type ApiDeckEntry = { id: string; recipe: ApiRecipe; servings: number; cooked: boolean; cooked_at?: string | null }
@@ -37,7 +39,7 @@ type ApiInboxRecord = { id: string; source_type: InboxRecord['sourceType']; sour
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { ...options, credentials: 'include', headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers } })
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: 'Request failed' }))
+    const body = await response.json().catch(() => ({ detail: `The server returned an unreadable error (${response.status}). Please retry; if this continues, check the backend logs.` }))
     const detail = body.detail
     if (Array.isArray(detail)) {
       const missingYield = detail.some((issue) => issue?.loc?.includes('base_servings'))
@@ -53,8 +55,9 @@ const mapRecipe = (recipe: ApiRecipe): Recipe => ({
   id: recipe.id, title: recipe.title, description: recipe.description, status: recipe.status, cuisine: recipe.cuisine, proteins: recipe.proteins, tags: recipe.tags, categories: recipe.categories,
   prepMinutes: recipe.prep_minutes, cookMinutes: recipe.cook_minutes, additionalTimeMinutes: recipe.additional_time_minutes, additionalTimeLabel: recipe.additional_time_label, baseServings: recipe.base_servings, yieldUnit: recipe.yield_unit,
   image: recipe.image, imageAlt: recipe.image_alt,
-  ingredients: recipe.ingredients.map((item) => ({ quantity: item.quantity, unit: item.unit ?? undefined, name: item.name, note: item.note ?? undefined, packageDetail: item.package_detail ?? undefined, alternativeMeasurements: item.alternative_measurements?.map((measurement) => ({ quantity: measurement.quantity, unit: measurement.unit ?? undefined })) ?? [] })),
-  steps: recipe.steps.map((step) => ({ instruction: step.instruction, tip: step.tip ?? undefined })), notes: recipe.notes,
+  ingredientSections: recipe.ingredient_sections?.map((section) => section.heading) ?? [], instructionSections: recipe.instruction_sections?.map((section) => section.heading) ?? [],
+  ingredients: recipe.ingredients.map((item) => ({ quantity: item.quantity, unit: item.unit ?? undefined, name: item.name, note: item.note ?? undefined, packageDetail: item.package_detail ?? undefined, sectionIndex: item.section_index, alternativeMeasurements: item.alternative_measurements?.map((measurement) => ({ quantity: measurement.quantity, unit: measurement.unit ?? undefined })) ?? [] })),
+  steps: recipe.steps.map((step) => ({ instruction: step.instruction, tip: step.tip ?? undefined, sectionIndex: step.section_index })), notes: recipe.notes,
   source: { label: recipe.source.label, url: recipe.source.url ?? undefined }, cookingHistory: recipe.cooking_history,
 })
 const mapDeckEntry = (entry: ApiDeckEntry): DeckEntryRecord => ({ id: entry.id, recipe: mapRecipe(entry.recipe), servings: entry.servings, cooked: entry.cooked, cookedAt: entry.cooked_at })
@@ -97,7 +100,7 @@ export const api = {
   removeImportImage: (id: string) => request<ApiInboxRecord>(`/api/inbox/${id}/image`, { method: 'DELETE' }).then(mapInbox),
   aiExtractImport: async (id: string, manualTranscript?: string) => {
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 120_000)
+    const timeout = window.setTimeout(() => controller.abort(), 240_000)
     try { return mapInbox(await request<ApiInboxRecord>(`/api/inbox/${id}/ai-extract`, { method: 'POST', signal: controller.signal, body: JSON.stringify({ manual_transcript: manualTranscript?.trim() || null }) })) }
     catch (cause) { if (controller.signal.aborted) throw new Error('Recipe extraction timed out. Please try again or enter the recipe manually.'); throw cause }
     finally { window.clearTimeout(timeout) }

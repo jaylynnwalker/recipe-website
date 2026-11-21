@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import get_settings
 from ..database import get_db
 from ..dependencies import Workspace, current_workspace
-from ..models import Category, CookingEvent, Ingredient, IngredientMeasurement, Protein, Recipe, RecipeIngredient, RecipePhoto, RecipeStep, Tag
+from ..models import Category, CookingEvent, Ingredient, IngredientMeasurement, Protein, Recipe, RecipeIngredient, RecipePhoto, RecipeSection, RecipeStep, Tag
 from ..schemas import PhotoRead, RecipeRead, RecipeWrite
 from ..serializers import recipe_to_dict
 from ..units import COMMON_UNITS, UNIT_ALIASES, normalize_unit
@@ -24,7 +24,7 @@ COMMON_PROTEINS = ['Chicken', 'Beef', 'Pork', 'Turkey', 'Lamb', 'Fish', 'Shellfi
 
 
 def recipe_options():
-    return (selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient), selectinload(Recipe.ingredients).selectinload(RecipeIngredient.alternative_measurements), selectinload(Recipe.steps), selectinload(Recipe.tags), selectinload(Recipe.categories), selectinload(Recipe.proteins), selectinload(Recipe.photos), selectinload(Recipe.cooking_events))
+    return (selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient), selectinload(Recipe.ingredients).selectinload(RecipeIngredient.alternative_measurements), selectinload(Recipe.ingredients).selectinload(RecipeIngredient.section), selectinload(Recipe.steps).selectinload(RecipeStep.section), selectinload(Recipe.sections), selectinload(Recipe.tags), selectinload(Recipe.categories), selectinload(Recipe.proteins), selectinload(Recipe.photos), selectinload(Recipe.cooking_events))
 
 
 def get_household_recipe(recipe_id: str, household_id: str, db: Session) -> Recipe:
@@ -80,7 +80,15 @@ def apply_recipe_payload(recipe: Recipe, payload: RecipeWrite, db: Session):
     recipe.proteins = [get_or_create_named(db, Protein, name) for name in payload.proteins]
     if recipe.ingredients:
         recipe.ingredients.clear()
-        db.flush()
+    if recipe.steps:
+        recipe.steps.clear()
+    if recipe.sections:
+        recipe.sections.clear()
+    db.flush()
+    ingredient_sections = [RecipeSection(kind='ingredient', heading=section.heading.strip(), position=position) for position, section in enumerate(payload.ingredient_sections)]
+    instruction_sections = [RecipeSection(kind='instruction', heading=section.heading.strip(), position=position) for position, section in enumerate(payload.instruction_sections)]
+    recipe.sections.extend([*ingredient_sections, *instruction_sections])
+    db.flush()
     for position, item in enumerate(payload.ingredients):
         normalized = ' '.join(item.name.split()).casefold()
         ingredient = db.scalar(select(Ingredient).where(Ingredient.normalized_name == normalized))
@@ -88,11 +96,9 @@ def apply_recipe_payload(recipe: Recipe, payload: RecipeWrite, db: Session):
             ingredient = Ingredient(display_name=' '.join(item.name.split()), normalized_name=normalized)
             db.add(ingredient)
             db.flush()
-        recipe.ingredients.append(RecipeIngredient(position=position, ingredient=ingredient, quantity=item.quantity, unit=item.unit, note=item.note, optional=item.optional, package_detail=item.package_detail, alternative_measurements=[IngredientMeasurement(position=index, quantity=measurement.quantity, unit=measurement.unit) for index, measurement in enumerate(item.alternative_measurements)]))
-    if recipe.steps:
-        recipe.steps.clear()
-        db.flush()
-    recipe.steps.extend(RecipeStep(position=position, instruction=step.instruction, tip=step.tip) for position, step in enumerate(payload.steps))
+        section = ingredient_sections[item.section_index] if item.section_index is not None and item.section_index < len(ingredient_sections) else None
+        recipe.ingredients.append(RecipeIngredient(position=position, section=section, ingredient=ingredient, quantity=item.quantity, unit=item.unit, note=item.note, optional=item.optional, package_detail=item.package_detail, alternative_measurements=[IngredientMeasurement(position=index, quantity=measurement.quantity, unit=measurement.unit) for index, measurement in enumerate(item.alternative_measurements)]))
+    recipe.steps.extend(RecipeStep(position=position, section=instruction_sections[step.section_index] if step.section_index is not None and step.section_index < len(instruction_sections) else None, instruction=step.instruction, tip=step.tip) for position, step in enumerate(payload.steps))
 
 
 @router.get('', response_model=list[RecipeRead])

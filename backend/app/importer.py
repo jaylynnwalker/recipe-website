@@ -148,6 +148,24 @@ def parse_youtube_transcript(content: str) -> str:
     return re.sub(r'\s+', ' ', html_module.unescape(' '.join(pieces))).strip()
 
 
+def clean_pasted_youtube_transcript(content: str) -> str:
+    """Remove YouTube page chrome from a transcript copied from the page.
+
+    A clean transcript is returned unchanged apart from surrounding whitespace.
+    For a full-page copy, ``Search transcript`` is the stable boundary immediately
+    before the caption text. Timestamp-only display lines are redundant because
+    the spoken lines remain in chronological order.
+    """
+    lines = content.strip().splitlines()
+    boundaries = [index for index, line in enumerate(lines) if line.strip().casefold() == 'search transcript']
+    if boundaries:
+        lines = lines[boundaries[-1] + 1:]
+    timestamp = re.compile(r'^\d{1,2}:\d{2}(?::\d{2})?$')
+    spoken_time = re.compile(r'^\d+\s+(?:(?:hours?|minutes?),?\s*)?(?:\d+\s+)?seconds?$' , re.IGNORECASE)
+    cleaned = [line.strip() for line in lines if line.strip() and not timestamp.fullmatch(line.strip()) and not spoken_time.fullmatch(line.strip())]
+    return '\n'.join(cleaned).strip()
+
+
 async def fetch_youtube_transcript(html: str) -> tuple[str, str]:
     """Fetch a public manual or automatic caption track without downloading video."""
     track = select_youtube_caption_track(youtube_caption_tracks(html))
@@ -216,6 +234,36 @@ def instruction_text(value) -> list[str]:
     return result
 
 
+def sectioned_instructions(value) -> tuple[list[dict], list[dict]]:
+    sections: list[dict] = []; steps: list[dict] = []
+    for item in value if isinstance(value, list) else [value]:
+        if isinstance(item, dict) and type_is(item, 'HowToSection'):
+            heading = str(item.get('name') or '').strip()
+            if not heading: continue
+            section_index = len(sections); sections.append({'heading': heading})
+            for text in instruction_text(item.get('itemListElement', [])):
+                steps.append({'instruction': capitalize_first_letter(text), 'tip': None, 'section_index': section_index})
+        else:
+            for text in instruction_text(item):
+                steps.append({'instruction': capitalize_first_letter(text), 'tip': None, 'section_index': None})
+    return sections, steps
+
+
+def sectioned_ingredients(values) -> tuple[list[dict], list[dict]]:
+    sections: list[dict] = []; ingredients: list[dict] = []; section_index = None
+    for raw in values if isinstance(values, list) else [values]:
+        text = str(raw).strip()
+        is_heading = text.endswith(':') and len(text) <= 80 and not re.search(r'\d', text)
+        if is_heading:
+            heading = text[:-1].strip()
+            if heading:
+                section_index = len(sections); sections.append({'heading': heading})
+            continue
+        if text:
+            ingredients.append({**parse_imported_ingredient(text), 'section_index': section_index})
+    return sections, ingredients
+
+
 def _image_value(value) -> str | None:
     if isinstance(value, str): return value.strip() or None
     if isinstance(value, list):
@@ -280,7 +328,9 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
         raw_ingredients = recipe.get('recipeIngredient', [])
         if isinstance(raw_ingredients, str): raw_ingredients = [raw_ingredients]
         ingredients = [str(item).strip() for item in raw_ingredients if str(item).strip()]
-        steps = instruction_text(recipe.get('recipeInstructions', []))
+        ingredient_sections, parsed_ingredients = sectioned_ingredients(ingredients)
+        instruction_sections, parsed_steps = sectioned_instructions(recipe.get('recipeInstructions', []))
+        steps = [step['instruction'] for step in parsed_steps]
         raw_yield = recipe.get('recipeYield', '')
         if isinstance(raw_yield, list): raw_yield = next((value for value in raw_yield if re.search(r'\d+', str(value))), raw_yield[0] if raw_yield else '')
         servings_match = re.search(r'\d+', str(raw_yield))
@@ -300,8 +350,9 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
         draft = {
             'title': title, 'description': str(recipe.get('description') or '').strip(), 'status': 'Want to Try', 'cuisine': str(cuisine).strip(), 'proteins': [],
             'tags': [str(item).strip() for item in raw_keywords if str(item).strip()], 'categories': [str(item).strip() for item in raw_categories if str(item).strip()], 'prep_minutes': prep_minutes, 'cook_minutes': cook_minutes, 'additional_time_minutes': additional_minutes, 'additional_time_label': 'Additional', 'base_servings': int(servings_match.group()) if servings_match else None, 'yield_unit': yield_unit if servings_match else '',
-            'ingredients': [parse_imported_ingredient(item) for item in ingredients],
-            'steps': [{'instruction': capitalize_first_letter(item), 'tip': None} for item in steps], 'notes': '',
+            'ingredient_sections': ingredient_sections, 'instruction_sections': instruction_sections,
+            'ingredients': parsed_ingredients,
+            'steps': parsed_steps, 'notes': '',
             'source': {'type': 'web', 'label': host, 'url': final_url, 'page': None},
         }
         return normalize_imported_draft(draft), bool(extracted_title and ingredients and steps)
@@ -317,7 +368,7 @@ def parse_page(html: str, final_url: str) -> tuple[dict, bool]:
 
 
 def empty_draft(title: str, description: str, url: str | None, source_type: str, label: str) -> dict:
-    return {'title': title, 'description': description, 'status': 'Want to Try', 'cuisine': '', 'proteins': [], 'tags': [], 'categories': [], 'prep_minutes': 0, 'cook_minutes': 0, 'additional_time_minutes': 0, 'additional_time_label': 'Additional', 'base_servings': None, 'yield_unit': '', 'ingredients': [], 'steps': [], 'notes': '', 'source': {'type': source_type, 'label': label, 'url': url, 'page': None}}
+    return {'title': title, 'description': description, 'status': 'Want to Try', 'cuisine': '', 'proteins': [], 'tags': [], 'categories': [], 'ingredient_sections': [], 'instruction_sections': [], 'prep_minutes': 0, 'cook_minutes': 0, 'additional_time_minutes': 0, 'additional_time_label': 'Additional', 'base_servings': None, 'yield_unit': '', 'ingredients': [], 'steps': [], 'notes': '', 'source': {'type': source_type, 'label': label, 'url': url, 'page': None}}
 
 
 async def extract_url(url: str) -> tuple[dict, bool, str, str | None]:

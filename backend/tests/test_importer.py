@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.importer import ImportFailure, clean_social_title, duration_minutes, image_url_from_page, parse_page, parse_youtube_transcript, select_youtube_caption_track, social_source_type, validate_external_url, youtube_caption_tracks
+from app.importer import ImportFailure, clean_pasted_youtube_transcript, clean_social_title, duration_minutes, image_url_from_page, parse_page, parse_youtube_transcript, select_youtube_caption_track, social_source_type, validate_external_url, youtube_caption_tracks
 from app.ingredient_parser import capitalize_first_letter, normalize_imported_draft, normalize_imported_ingredient, parse_imported_ingredient
 
 
@@ -26,6 +26,21 @@ def test_structured_recipe_extraction_preserves_available_fields():
     assert draft['steps'][1]['instruction'] == 'Add lemon with an Instant Pot.'
     assert draft['categories'] == ['Dinner', 'Pasta']
     assert draft['tags'] == ['Quick', 'Vegetarian']
+
+
+def test_structured_recipe_extraction_preserves_ingredient_and_instruction_sections():
+    data = {'@context': 'https://schema.org', '@type': 'Recipe', 'name': 'Peach Cobbler', 'recipeYield': '8 servings',
+        'recipeIngredient': ['Crust:', '2 cups flour', 'Filling:', '6 peaches', '1 cup brown sugar'],
+        'recipeInstructions': [
+            {'@type': 'HowToSection', 'name': 'Prepare Filling', 'itemListElement': [{'@type': 'HowToStep', 'text': 'Slice the peaches.'}]},
+            {'@type': 'HowToSection', 'name': 'Assemble', 'itemListElement': [{'@type': 'HowToStep', 'text': 'Cover with crust and bake.'}]},
+        ]}
+    draft, complete = parse_page(f'<script type="application/ld+json">{json.dumps(data)}</script>', 'https://example.com/cobbler')
+    assert complete is True
+    assert draft['ingredient_sections'] == [{'heading': 'Crust'}, {'heading': 'Filling'}]
+    assert [item['section_index'] for item in draft['ingredients']] == [0, 1, 1]
+    assert draft['instruction_sections'] == [{'heading': 'Prepare Filling'}, {'heading': 'Assemble'}]
+    assert [step['section_index'] for step in draft['steps']] == [0, 1]
 
 
 def test_add_a_pinch_structured_recipe_regression_fixture():
@@ -80,6 +95,34 @@ def test_youtube_caption_parsing_preserves_chronological_text():
     ]})
     assert parse_youtube_transcript(json3) == '[Music] Chop two onions. Heat the oil.'
     assert parse_youtube_transcript('<transcript><text start="0">Mix &amp; bake.</text><text start="2">Serve.</text></transcript>') == 'Mix & bake. Serve.'
+
+
+def test_full_youtube_page_copy_is_reduced_to_chronological_transcript():
+    pasted = '''Skip navigation
+Comments
+Someone shared an unrelated variation.
+Search transcript
+Chapter 1: Preparing the pie crust
+0:00
+0 seconds
+Use two and a half cups of flour.
+1:20
+1 minute, 20 seconds
+Add half a teaspoon of salt.
+Chapter 2: Making the filling
+7:42
+7 minutes, 42 seconds
+Use five cups of blackberries.'''
+    assert clean_pasted_youtube_transcript(pasted) == '''Chapter 1: Preparing the pie crust
+Use two and a half cups of flour.
+Add half a teaspoon of salt.
+Chapter 2: Making the filling
+Use five cups of blackberries.'''
+
+
+def test_clean_pasted_transcript_is_not_destructively_rewritten():
+    transcript = 'Mix 1 cup flour.\nBake at 375 degrees for 45 minutes.'
+    assert clean_pasted_youtube_transcript(transcript) == transcript
 
 
 @pytest.mark.parametrize(('url', 'source_type'), [

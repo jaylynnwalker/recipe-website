@@ -292,6 +292,54 @@ async def test_pasted_youtube_transcript_bypasses_unavailable_caption_fetch(auth
     assert 'pasted transcript' in response.json()['error_message']
 
 
+async def test_full_page_youtube_copy_sends_only_transcript_content_to_ai(authenticated, recipe_payload, monkeypatch):
+    url = 'https://www.youtube.com/watch?v=page-copy'
+    partial = extracted_draft(recipe_payload, url); partial.update(ingredients=[], steps=[]); partial['source']['type'] = 'youtube'
+    captured = ''
+    async def fake_extract(_url): return partial, False, url, None
+    async def public_html(_url): return '<html></html>', url
+    async def no_image(*args): return False
+    async def fake_ai(*args, **kwargs):
+        nonlocal captured
+        captured = args[4]
+        return recipe_payload
+    monkeypatch.setattr(imports, 'extract_url', fake_extract)
+    monkeypatch.setattr(imports, 'fetch_public_html', public_html)
+    monkeypatch.setattr(imports, 'download_import_image', no_image)
+    monkeypatch.setattr(imports, 'run_structured', fake_ai)
+    item = (await authenticated.post('/api/inbox/url', json={'url': url})).json()
+    pasted = 'Skip navigation\nViewer comments\nSearch transcript\nChapter 1: Crust\n0:00\n0 seconds\nMix 2 cups flour.'
+    response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract", json={'manual_transcript': pasted})
+    assert response.status_code == 200
+    assert 'Skip navigation' not in captured and 'Viewer comments' not in captured
+    assert 'Chapter 1: Crust' in captured and 'Mix 2 cups flour.' in captured
+
+
+async def test_long_pasted_youtube_transcript_reaches_ai_without_losing_late_recipe_details(authenticated, recipe_payload, monkeypatch):
+    url = 'https://www.youtube.com/watch?v=long-transcript'
+    partial = extracted_draft(recipe_payload, url); partial.update(ingredients=[], steps=[]); partial['source']['type'] = 'youtube'
+    transcript = ('Welcome back. This is unrelated conversation and commentary. ' * 1500) + 'Recipe details: use 2 cups flour. Mix the dough, then bake until golden.'
+    captured = ''
+    async def fake_extract(_url): return partial, False, url, None
+    async def public_html(_url): return '<html></html>', url
+    async def no_image(*args): return False
+    async def fake_ai(*args, **kwargs):
+        nonlocal captured
+        captured = args[4]
+        return {**recipe_payload, 'base_servings': None, 'ingredients': [{'name': 'flour', 'quantity': 2, 'unit': 'cup', 'note': None, 'optional': False}], 'steps': [{'instruction': 'mix the dough.', 'tip': None}, {'instruction': 'bake until golden.', 'tip': None}]}
+    monkeypatch.setattr(imports, 'extract_url', fake_extract)
+    monkeypatch.setattr(imports, 'fetch_public_html', public_html)
+    monkeypatch.setattr(imports, 'download_import_image', no_image)
+    monkeypatch.setattr(imports, 'run_structured', fake_ai)
+    item = (await authenticated.post('/api/inbox/url', json={'url': url})).json()
+    response = await authenticated.post(f"/api/inbox/{item['id']}/ai-extract", json={'manual_transcript': transcript})
+    assert response.status_code == 200
+    assert 'Recipe details: use 2 cups flour' in captured
+    assert response.json()['draft']['base_servings'] is None
+    assert response.json()['draft']['ingredients'][0]['name'] == 'Flour'
+    assert len(response.json()['draft']['steps']) == 2
+
+
 async def test_inaccessible_social_import_reports_failure_without_losing_source(authenticated, monkeypatch):
     async def blocked(_url): raise ImportFailure('The recipe website returned HTTP 403')
     monkeypatch.setattr(imports, 'extract_url', blocked)

@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import get_settings
 from ..database import get_db
 from ..dependencies import Workspace, current_workspace
-from ..ai import AIUnavailable, BudgetExceeded, RECIPE_SCHEMA, recipe_draft, run_structured
-from ..importer import ImportFailure, YouTubeTranscriptFailure, empty_draft, ensure_public_dns, extract_url, fetch_public_html, fetch_youtube_transcript, image_url_from_page, public_text_from_html, social_source_type, validate_external_url
+from ..ai import AIInvalidResponse, AIUnavailable, BudgetExceeded, RECIPE_SCHEMA, recipe_draft, run_structured
+from ..importer import ImportFailure, YouTubeTranscriptFailure, clean_pasted_youtube_transcript, empty_draft, ensure_public_dns, extract_url, fetch_public_html, fetch_youtube_transcript, image_url_from_page, public_text_from_html, social_source_type, validate_external_url
 from ..ingredient_parser import normalize_imported_draft
 from ..models import ImportAsset, ImportJob, Recipe, RecipePhoto
 from ..schemas import AIExtractRequest, InboxUrlCreate, RecipeRead, RecipeWrite
@@ -186,7 +186,7 @@ async def ai_extract_import(job_id: str, payload: AIExtractRequest | None = None
             if job.source_type == 'youtube':
                 manual_transcript = (payload.manual_transcript if payload else None) or ''
                 if manual_transcript.strip():
-                    transcript = manual_transcript.strip()
+                    transcript = clean_pasted_youtube_transcript(manual_transcript)
                     transcript_label = 'pasted transcript'
                 else:
                     try:
@@ -195,7 +195,7 @@ async def ai_extract_import(job_id: str, payload: AIExtractRequest | None = None
                         job.error_message = str(error); job.status = 'Ready for Review'; db.commit()
                         raise HTTPException(status_code=422, detail=str(error))
                 description = str(current.get('description') or '').strip()
-                prompt = f"Extract a recipe from this YouTube description and chronological transcript. Ignore greetings, promotions, engagement requests, and unrelated commentary. Never invent measurements or steps absent from the source. Existing metadata: {json.dumps(current)}\nDescription: {description}\nTranscript ({transcript_label}): {transcript[:80_000]}"
+                prompt = f"Extract a recipe from this YouTube description and chronological transcript. Ignore greetings, promotions, engagement requests, and unrelated commentary. Combine supported ingredient details and preparation steps even when they occur in different transcript sections. Preserve chronological preparation order. Never invent measurements or steps absent from the source. Existing metadata: {json.dumps(current)}\nDescription: {description}\nTranscript ({transcript_label}): {transcript}"
                 extraction_note = f'YouTube transcript retrieved and processed ({transcript_label}).'
             if job.source_type == 'facebook':
                 recipe_signals = len(re.findall(r'\b(?:cup|tsp|tbsp|ounce|ingredient|instructions?|mix|bake|cook|simmer|chop)\b', visible_text, re.IGNORECASE))
@@ -216,7 +216,7 @@ async def ai_extract_import(job_id: str, payload: AIExtractRequest | None = None
         raise HTTPException(status_code=409, detail='Inbox item has no source to extract')
     job.status = 'Processing'; job.error_message = None; db.commit()
     try:
-        parsed = await run_structured(db, workspace.household_id, 'image_extraction' if images else 'import_fallback', 'You transcribe recipes faithfully. Never invent unreadable or missing ingredients, quantities, times, or instructions. Preserve uncertainty as null or empty. Write a concise one- or two-sentence description with no quotation marks, website commentary, or promotional language. Suggest one cuisine and all applicable recipe categories from the recipe content. Deduplicate tags and categories case-insensitively. Preserve an explicit yield unit such as rotis, slices, or servings. Put resting, chilling, rising, or other time outside prep and cook in additional_time_minutes with a short label, and never double-count a stated total time.', prompt, RECIPE_SCHEMA, images)
+        parsed = await run_structured(db, workspace.household_id, 'image_extraction' if images else 'import_fallback', 'You transcribe recipes faithfully. Never invent unreadable or missing ingredients, quantities, times, instructions, or component sections. Preserve uncertainty as null or empty. Preserve explicit ingredient and instruction component headings such as Crust, Filling, Sauce, Frosting, Topping, Marinade, Dressing, Dough, or Assembly in their original order; use section_index to associate items, and leave section lists empty for a simple unsectioned recipe. Write a concise one- or two-sentence description with no quotation marks, website commentary, or promotional language. Suggest one cuisine and all applicable recipe categories from the recipe content. Deduplicate tags and categories case-insensitively. Preserve an explicit yield unit such as rotis, slices, or servings. Put resting, chilling, rising, or other time outside prep and cook in additional_time_minutes with a short label, and never double-count a stated total time.', prompt, RECIPE_SCHEMA, images)
         draft = recipe_draft(parsed, source)
         job = get_job(job_id, workspace.household_id, db); job.draft_payload = json.dumps(draft); job.title = draft['title'] or job.title; job.status = 'Ready for Review'; job.duplicate_recipe_id = find_duplicate(job, draft, db)
         if job.source_type == 'youtube' and (not draft.get('ingredients') or not draft.get('steps')):
@@ -228,6 +228,7 @@ async def ai_extract_import(job_id: str, payload: AIExtractRequest | None = None
         job = get_job(job_id, workspace.household_id, db); job.status = 'Failed'; job.error_message = str(error) if str(error) else 'AI extraction failed. Retry or enter the recipe manually.'; db.commit()
         if isinstance(error, BudgetExceeded): raise HTTPException(status_code=429, detail=str(error))
         if isinstance(error, AIUnavailable): raise HTTPException(status_code=503, detail=str(error))
+        if isinstance(error, AIInvalidResponse): raise HTTPException(status_code=502, detail=str(error))
         job.error_message = 'AI extraction failed. The original source and any previously extracted details are still available.'; db.commit()
         raise HTTPException(status_code=502, detail=job.error_message)
     return serialize(get_job(job_id, workspace.household_id, db))

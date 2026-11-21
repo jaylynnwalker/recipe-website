@@ -2,6 +2,7 @@ import base64
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_CEILING
 import json
+import logging
 
 import httpx
 from sqlalchemy import select, update
@@ -27,16 +28,33 @@ class BudgetExceeded(Exception): pass
 class AIInvalidResponse(Exception): pass
 
 
+logger = logging.getLogger(__name__)
+
+
 class ResponsesClient:
     def __init__(self, api_key: str): self.api_key = api_key
     async def create(self, payload: dict) -> dict:
-        async with httpx.AsyncClient(timeout=90) as client:
+        timeout = httpx.Timeout(180, connect=10)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             try:
                 response = await client.post('https://api.openai.com/v1/responses', json=payload, headers={'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'})
-            except httpx.HTTPError as error: raise AIUnavailable('The AI service could not be reached') from error
+            except httpx.TimeoutException as error:
+                logger.warning('OpenAI Responses request timed out after 180 seconds')
+                raise AIUnavailable('AI extraction timed out before a response was returned. Your transcript is still available; please retry.') from error
+            except httpx.HTTPError as error:
+                logger.warning('OpenAI Responses request failed: %s', type(error).__name__)
+                raise AIUnavailable('The AI service could not be reached. Your transcript is still available; please retry.') from error
         if response.status_code >= 400:
-            raise AIUnavailable('The AI service returned an error')
-        return response.json()
+            request_id = response.headers.get('x-request-id', 'unavailable')
+            logger.warning('OpenAI Responses error status=%s request_id=%s', response.status_code, request_id)
+            if response.status_code == 429: raise AIUnavailable('The AI service is temporarily rate limited. Your transcript is still available; please retry shortly.')
+            if response.status_code == 400: raise AIUnavailable('The transcript could not be processed by the configured AI model. Shorten only clearly unrelated content or try again.')
+            raise AIUnavailable(f'The AI service returned an error ({response.status_code}). Your transcript is still available; please retry.')
+        try:
+            return response.json()
+        except json.JSONDecodeError as error:
+            logger.warning('OpenAI Responses returned non-JSON success body request_id=%s', response.headers.get('x-request-id', 'unavailable'))
+            raise AIInvalidResponse('The AI service returned an unreadable response. Your transcript is still available; please retry.') from error
 
 
 def get_responses_client(settings: Settings) -> ResponsesClient:
@@ -95,7 +113,10 @@ def output_text(response: dict) -> str:
     for item in response.get('output', []):
         for content in item.get('content', []):
             if content.get('type') == 'output_text' and isinstance(content.get('text'), str): return content['text']
-    raise AIInvalidResponse('The AI response did not contain usable output')
+    if response.get('status') == 'incomplete':
+        reason = (response.get('incomplete_details') or {}).get('reason')
+        if reason == 'max_output_tokens': raise AIInvalidResponse('AI extraction ran out of output space before finishing the recipe. Please retry.')
+    raise AIInvalidResponse('The AI response did not contain a complete recipe. Please retry; your transcript is still available.')
 
 
 async def run_structured(db: Session, household_id: str, feature: str, instructions: str, prompt: str, schema: dict, images: list[tuple[bytes, str]] | None = None) -> dict:
@@ -105,11 +126,14 @@ async def run_structured(db: Session, household_id: str, feature: str, instructi
     for data, media_type in images or []:
         encoded = base64.b64encode(data).decode('ascii')
         content.append({'type': 'input_image', 'image_url': f'data:{media_type};base64,{encoded}', 'detail': 'high'})
-    payload = {'model': settings.openai_model, 'instructions': instructions, 'input': [{'role': 'user', 'content': content}], 'text': {'format': {'type': 'json_schema', 'name': 'our_kitchen_result', 'strict': True, 'schema': schema}}, 'reasoning': {'effort': 'low'}, 'max_output_tokens': 3000, 'store': False}
+    payload = {'model': settings.openai_model, 'instructions': instructions, 'input': [{'role': 'user', 'content': content}], 'text': {'format': {'type': 'json_schema', 'name': 'our_kitchen_result', 'strict': True, 'schema': schema}}, 'reasoning': {'effort': 'low'}, 'max_output_tokens': 5000, 'store': False}
     response = None
     try:
         response = await client.create(payload)
-        parsed = json.loads(output_text(response))
+        try:
+            parsed = json.loads(output_text(response))
+        except json.JSONDecodeError as error:
+            raise AIInvalidResponse('The AI response was incomplete or malformed. Your transcript is still available; please retry.') from error
         finish(db, reservation, response.get('usage'), True)
         return parsed
     except Exception:
@@ -119,17 +143,20 @@ async def run_structured(db: Session, household_id: str, feature: str, instructi
 
 NULL_STRING = {'anyOf': [{'type': 'string'}, {'type': 'null'}]}
 NULL_NUMBER = {'anyOf': [{'type': 'number'}, {'type': 'null'}]}
+NULL_INTEGER = {'anyOf': [{'type': 'integer', 'minimum': 0}, {'type': 'null'}]}
+SECTION_SCHEMA = {'type': 'object', 'additionalProperties': False, 'properties': {'heading': {'type': 'string'}}, 'required': ['heading']}
 RECIPE_SCHEMA = {
     'type': 'object', 'additionalProperties': False,
     'properties': {
         'title': {'type': 'string'}, 'description': {'type': 'string'}, 'cuisine': {'type': 'string'}, 'proteins': {'type': 'array', 'description': 'Explicit protein sources such as chicken, beef, pork, tofu, beans, lentils, eggs, fish, or shellfish; not nutritional protein claims.', 'items': {'type': 'string'}},
         'tags': {'type': 'array', 'items': {'type': 'string'}}, 'categories': {'type': 'array', 'items': {'type': 'string'}},
+        'ingredient_sections': {'type': 'array', 'items': SECTION_SCHEMA}, 'instruction_sections': {'type': 'array', 'items': SECTION_SCHEMA},
         'prep_minutes': {'type': 'integer'}, 'cook_minutes': {'type': 'integer'}, 'additional_time_minutes': {'type': 'integer'}, 'additional_time_label': {'type': 'string'}, 'base_servings': {'anyOf': [{'type': 'integer', 'minimum': 1}, {'type': 'null'}], 'description': 'Yield amount when explicitly provided; otherwise null.'}, 'yield_unit': {'type': 'string'},
-        'ingredients': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'name': {'type': 'string'}, 'quantity': NULL_NUMBER, 'unit': NULL_STRING, 'note': NULL_STRING, 'optional': {'type': 'boolean'}, 'package_detail': NULL_STRING, 'alternative_measurements': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'quantity': {'type': 'number'}, 'unit': NULL_STRING}, 'required': ['quantity', 'unit']}}}, 'required': ['name', 'quantity', 'unit', 'note', 'optional', 'package_detail', 'alternative_measurements']}},
-        'steps': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'instruction': {'type': 'string'}, 'tip': NULL_STRING}, 'required': ['instruction', 'tip']}},
+        'ingredients': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'name': {'type': 'string'}, 'quantity': NULL_NUMBER, 'unit': NULL_STRING, 'note': NULL_STRING, 'optional': {'type': 'boolean'}, 'package_detail': NULL_STRING, 'section_index': NULL_INTEGER, 'alternative_measurements': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'quantity': {'type': 'number'}, 'unit': NULL_STRING}, 'required': ['quantity', 'unit']}}}, 'required': ['name', 'quantity', 'unit', 'note', 'optional', 'package_detail', 'section_index', 'alternative_measurements']}},
+        'steps': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'instruction': {'type': 'string'}, 'tip': NULL_STRING, 'section_index': NULL_INTEGER}, 'required': ['instruction', 'tip', 'section_index']}},
         'notes': {'type': 'string'},
     },
-    'required': ['title', 'description', 'cuisine', 'proteins', 'tags', 'categories', 'prep_minutes', 'cook_minutes', 'additional_time_minutes', 'additional_time_label', 'base_servings', 'yield_unit', 'ingredients', 'steps', 'notes'],
+    'required': ['title', 'description', 'cuisine', 'proteins', 'tags', 'categories', 'ingredient_sections', 'instruction_sections', 'prep_minutes', 'cook_minutes', 'additional_time_minutes', 'additional_time_label', 'base_servings', 'yield_unit', 'ingredients', 'steps', 'notes'],
 }
 
 

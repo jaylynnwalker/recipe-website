@@ -42,4 +42,23 @@ describe('RecipeDetail', () => {
     expect(screen.getByText('Total 50 min')).toBeInTheDocument()
     expect(screen.getByText('12 rotis')).toBeInTheDocument()
   })
+
+  it('displays independent ingredient and instruction section headings while scaling', async () => {
+    const user = userEvent.setup()
+    const recipe = { ...recipes[0], ingredientSections: ['Crust', 'Filling'], instructionSections: ['Prepare Filling', 'Assemble'], ingredients: [
+      { quantity: 2, unit: 'cup', name: 'Flour', sectionIndex: 0 },
+      { quantity: 4, unit: 'whole', name: 'Peaches', sectionIndex: 1 },
+    ], steps: [
+      { instruction: 'Slice peaches.', sectionIndex: 0 },
+      { instruction: 'Cover and bake.', sectionIndex: 1 },
+    ] }
+    render(<RecipeDetail recipe={recipe} onBack={vi.fn()} onAddToDeck={vi.fn()} onEdit={vi.fn()} onMadeThis={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: 'Crust' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Filling' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Increase servings' }))
+    expect(screen.getByText('Flour').closest('span')).toHaveTextContent('2½ cup Flour')
+    await user.click(screen.getByRole('tab', { name: 'Instructions' }))
+    expect(screen.getByRole('heading', { name: 'Prepare Filling' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Assemble' })).toBeInTheDocument()
+  })
 })

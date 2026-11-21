@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { recipes } from '../data'
@@ -29,7 +29,7 @@ describe('RecipeForm', () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Weeknight Soup',
       ingredients: [expect.objectContaining({ name: 'Carrots', quantity: 2 })],
-      steps: [{ instruction: 'Simmer until tender.', tip: null }],
+      steps: [expect.objectContaining({ instruction: 'Simmer until tender.', tip: null })],
     }), undefined)
   })
 
@@ -152,5 +152,45 @@ describe('RecipeForm', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
     expect(onExtract).toHaveBeenCalledWith('Mix 1 cup flour and bake.')
+  })
+
+  it('creates, renames, reorders, assigns, and deletes independent recipe sections', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<RecipeForm recipe={recipes[0]} classifications={classifications} units={units} onSave={onSave} onCancel={vi.fn()} />)
+    const addSections = screen.getAllByRole('button', { name: '+ Add section' })
+    await user.click(addSections[0]); await user.click(addSections[0])
+    await user.clear(screen.getByLabelText('Ingredient section 1 heading')); await user.type(screen.getByLabelText('Ingredient section 1 heading'), 'Crust')
+    await user.clear(screen.getByLabelText('Ingredient section 2 heading')); await user.type(screen.getByLabelText('Ingredient section 2 heading'), 'Filling')
+    await user.selectOptions(screen.getByLabelText('Ingredient 1 section'), '1')
+    await user.click(screen.getByLabelText('Move ingredient section 2 up'))
+    expect(screen.getByLabelText('Ingredient section 1 heading')).toHaveValue('Filling')
+
+    await user.click(addSections[1])
+    await user.clear(screen.getByLabelText('Instruction section 1 heading')); await user.type(screen.getByLabelText('Instruction section 1 heading'), 'Assembly')
+    await user.selectOptions(screen.getByLabelText('Instruction 1 section'), '0')
+    await user.click(screen.getByRole('button', { name: 'Save recipe' }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      ingredient_sections: [{ heading: 'Filling' }, { heading: 'Crust' }],
+      instruction_sections: [{ heading: 'Assembly' }],
+      ingredients: expect.arrayContaining([expect.objectContaining({ section_index: 0 })]),
+      steps: expect.arrayContaining([expect.objectContaining({ section_index: 0 })]),
+    }), undefined)
+
+    await user.click(screen.getByLabelText('Delete ingredient section 1'))
+    expect(screen.queryByDisplayValue('Filling')).not.toBeInTheDocument()
+  })
+
+  it('preserves a long pasted transcript after extraction failure for retry', async () => {
+    const user = userEvent.setup()
+    const onExtract = vi.fn().mockRejectedValue(new Error('AI extraction timed out'))
+    render(<RecipeForm recipe={recipes[0]} mode="review" sourceType="youtube" classifications={classifications} units={units} onSave={vi.fn()} onExtract={onExtract} extractionError="AI extraction timed out. Your transcript is still available." onCancel={vi.fn()} />)
+    const transcript = 'Introduction and commentary. '.repeat(500) + 'Mix 2 cups flour and bake.'
+    fireEvent.change(screen.getByLabelText('Transcript text'), { target: { value: transcript } })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
+    expect(screen.getByLabelText('Transcript text')).toHaveValue(transcript)
+    await user.click(screen.getByRole('button', { name: 'Extract with AI' }))
+    expect(onExtract).toHaveBeenCalledTimes(2)
   })
 })

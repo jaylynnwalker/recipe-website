@@ -176,6 +176,8 @@ def normalize_imported_draft(draft: dict[str, Any]) -> dict[str, Any]:
     description = ' '.join(str(result.get('description') or '').strip().strip('"“”').split())
     sentences = re.split(r'(?<=[.!?])\s+', description)
     result['description'] = ' '.join(sentences[:2])
+    result['ingredient_sections'] = [{'heading': ' '.join(str(section.get('heading') or '').split())[:120]} for section in result.get('ingredient_sections', []) if str(section.get('heading') or '').strip()]
+    result['instruction_sections'] = [{'heading': ' '.join(str(section.get('heading') or '').split())[:120]} for section in result.get('instruction_sections', []) if str(section.get('heading') or '').strip()]
     for field in ('tags', 'categories', 'proteins'):
         unique: list[str] = []
         for value in result.get(field, []):

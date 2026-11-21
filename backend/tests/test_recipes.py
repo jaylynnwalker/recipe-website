@@ -99,3 +99,43 @@ async def test_recipe_proteins_are_multi_select_deduplicated_and_filterable(auth
     assert created.json()['proteins'] == ['Chicken', 'tofu']
     matches = (await authenticated.get('/api/recipes', params={'protein': 'Chicken'})).json()
     assert [recipe['id'] for recipe in matches] == [created.json()['id']]
+
+
+async def test_recipe_sections_persist_reorder_move_and_delete_without_affecting_measurements(authenticated, recipe_payload):
+    payload = {**recipe_payload, 'title': 'Peach Cobbler',
+        'ingredient_sections': [{'heading': 'Crust'}, {'heading': 'Peach Filling'}],
+        'instruction_sections': [{'heading': 'Prepare Filling'}, {'heading': 'Assemble and Bake'}],
+        'ingredients': [
+            {'name': 'Flour', 'quantity': 2, 'unit': 'cup', 'note': None, 'optional': False, 'section_index': 0, 'alternative_measurements': [{'quantity': 240, 'unit': 'g'}]},
+            {'name': 'Peaches', 'quantity': 6, 'unit': 'whole', 'note': 'sliced', 'optional': False, 'section_index': 1},
+        ],
+        'steps': [
+            {'instruction': 'Slice the peaches.', 'tip': None, 'section_index': 0},
+            {'instruction': 'Cover with crust and bake.', 'tip': 'Bake until golden.', 'section_index': 1},
+        ]}
+    created = await authenticated.post('/api/recipes', json=payload)
+    assert created.status_code == 201
+    result = created.json()
+    assert result['ingredient_sections'] == [{'heading': 'Crust'}, {'heading': 'Peach Filling'}]
+    assert [item['section_index'] for item in result['ingredients']] == [0, 1]
+    assert result['ingredients'][0]['alternative_measurements'] == [{'quantity': 240.0, 'unit': 'g'}]
+    assert result['instruction_sections'] == [{'heading': 'Prepare Filling'}, {'heading': 'Assemble and Bake'}]
+    assert [step['section_index'] for step in result['steps']] == [0, 1]
+
+    edited = {**payload, 'ingredient_sections': [{'heading': 'Filling'}, {'heading': 'Pastry'}],
+        'instruction_sections': [],
+        'ingredients': [{**payload['ingredients'][0], 'section_index': 1}, {**payload['ingredients'][1], 'section_index': 0}],
+        'steps': [{**step, 'section_index': None} for step in payload['steps']]}
+    updated = await authenticated.put(f"/api/recipes/{result['id']}", json=edited)
+    assert updated.status_code == 200
+    assert updated.json()['ingredient_sections'] == [{'heading': 'Filling'}, {'heading': 'Pastry'}]
+    assert [item['section_index'] for item in updated.json()['ingredients']] == [1, 0]
+    assert updated.json()['instruction_sections'] == []
+    assert all(step['section_index'] is None for step in updated.json()['steps'])
+
+
+async def test_existing_unsectioned_recipe_remains_compatible(authenticated, recipe_payload):
+    created = (await authenticated.post('/api/recipes', json=recipe_payload)).json()
+    assert created['ingredient_sections'] == [] and created['instruction_sections'] == []
+    assert created['ingredients'][0]['section_index'] is None
+    assert created['steps'][0]['section_index'] is None
